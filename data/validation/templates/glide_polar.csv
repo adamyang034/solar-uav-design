@@ -1,0 +1,3 @@
+# Flight-test glide polar. drag_n = W * sink / V if you log sink instead.
+# Mass must match the flown aircraft (set in the comparison call).
+v_ms,sink_ms,drag_n

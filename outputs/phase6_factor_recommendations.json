@@ -1,0 +1,71 @@
+{
+  "awaiting_any": true,
+  "comparisons": [
+    {
+      "protocol": "panel",
+      "n_points": 0,
+      "model_mean": NaN,
+      "meas_mean": NaN,
+      "scale_meas_over_model": NaN,
+      "residual_rms": NaN,
+      "recommended_factor": "ENCAPSULATION_TRANSMISSION * WIRING_MISMATCH_SOILING_EFF",
+      "recommended_value": 0.9360499999999999,
+      "current_value": 0.9360499999999999,
+      "notes": "No file at /Users/adamyang/solar-uav-design/data/validation/measured/panel_iv.csv. Template: /Users/adamyang/solar-uav-design/data/validation/templates/panel_iv.csv",
+      "awaiting_data": true
+    },
+    {
+      "protocol": "battery",
+      "n_points": 0,
+      "model_mean": 483.0,
+      "meas_mean": NaN,
+      "scale_meas_over_model": NaN,
+      "residual_rms": NaN,
+      "recommended_factor": "PACK_ENERGY_WH",
+      "recommended_value": 483.0,
+      "current_value": 483.0,
+      "notes": "No file at /Users/adamyang/solar-uav-design/data/validation/measured/battery_capacity.csv. Template: /Users/adamyang/solar-uav-design/data/validation/templates/battery_capacity.csv",
+      "awaiting_data": true
+    },
+    {
+      "protocol": "battery_charge",
+      "n_points": 0,
+      "model_mean": 6.0,
+      "meas_mean": NaN,
+      "scale_meas_over_model": NaN,
+      "residual_rms": NaN,
+      "recommended_factor": "PACK_CHARGE_MAX_A",
+      "recommended_value": 6.0,
+      "current_value": 6.0,
+      "notes": "No file at /Users/adamyang/solar-uav-design/data/validation/measured/battery_charge.csv. Template: /Users/adamyang/solar-uav-design/data/validation/templates/battery_charge.csv",
+      "awaiting_data": true
+    },
+    {
+      "protocol": "thrust_stand",
+      "n_points": 0,
+      "model_mean": NaN,
+      "meas_mean": NaN,
+      "scale_meas_over_model": NaN,
+      "residual_rms": NaN,
+      "recommended_factor": "PROP_THRUST_DERATE",
+      "recommended_value": 0.92,
+      "current_value": 0.92,
+      "notes": "No file at /Users/adamyang/solar-uav-design/data/validation/measured/thrust_stand.csv. Template: /Users/adamyang/solar-uav-design/data/validation/templates/thrust_stand.csv",
+      "awaiting_data": true
+    },
+    {
+      "protocol": "glide_polar",
+      "n_points": 0,
+      "model_mean": NaN,
+      "meas_mean": NaN,
+      "scale_meas_over_model": NaN,
+      "residual_rms": NaN,
+      "recommended_factor": "TRIM_DRAG_FACTOR",
+      "recommended_value": 1.03,
+      "current_value": 1.03,
+      "notes": "No file at /Users/adamyang/solar-uav-design/data/validation/measured/glide_polar.csv. Template: /Users/adamyang/solar-uav-design/data/validation/templates/glide_polar.csv",
+      "awaiting_data": true
+    }
+  ],
+  "note": "Do not auto-edit config.py. Review these recommended factor updates after the corresponding bench/flight test."
+}

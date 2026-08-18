@@ -1,0 +1,3 @@
+# Single GOLD V1 pack constant-current discharge to the 20% SOC / 19.2 V floor.
+# current_a is discharge (positive). energy_wh is optional running integral.
+t_s,voltage_v,current_a,energy_wh

@@ -1,0 +1,72 @@
+{
+  "vlm": {
+    "cl": 0.6727242485476937,
+    "cd": 0.006913453220782034,
+    "e": 0.9922328189040726,
+    "eps_rad": 0.01901717304533569,
+    "w_z": -0.22319990723356348,
+    "k_downwash": 0.9324905273709272,
+    "ok": true
+  },
+  "lifting_line": {
+    "cl": 0.7636924401813066,
+    "cd": 0.02095529694794577,
+    "ok": true
+  },
+  "aerobuildup": {
+    "cl": 0.7852478731052566,
+    "cd": 0.030759363343026133,
+    "clp": -0.759266806930052,
+    "cnb": 0.16342944671532164,
+    "cnr": -0.05310417249048743,
+    "cla": 6.490823025876358,
+    "ok": true
+  },
+  "xfoil": {
+    "ok": false,
+    "reason": "xfoil binary not on PATH",
+    "neuralfoil": {
+      "cd": 0.013969703624416574,
+      "cm": -0.08341865766534874,
+      "alpha_deg": 3.0238779590491287
+    },
+    "cd_scale": 1.0
+  },
+  "handbook": {
+    "clp": -0.9076810171738925,
+    "cnb": 0.10995574287564278,
+    "cnr": -0.03298672286269283,
+    "iyy": 0.662603911911176,
+    "e": 0.98,
+    "eps_rad": 0.023267290598075415
+  },
+  "used": {
+    "downwash_k": 1.0,
+    "oswald_e": 0.98,
+    "clp": -0.9076810171738925,
+    "cnb": 0.10995574287564278,
+    "cnr": -0.03298672286269283,
+    "iyy": 1.3937516256638165,
+    "cd_scale": 1.0
+  },
+  "k_raw": 0.9324905273709272,
+  "flags": [
+    "VLM downwash at the \u03c0-tail is 0.93\u00d7 handbook; keeping handbook (no T-tail height credit)",
+    "AeroBuildup |Cl_p|=0.759 < handbook 0.908; keeping handbook (harder roll)",
+    "AeroBuildup Cn_\u03b2=0.163 > handbook 0.110; keeping handbook (harder weathercock)",
+    "AeroBuildup |Cn_r|=0.053 > handbook 0.033; keeping handbook (weaker damping is conservative)",
+    "CAD MassProperties Iyy=1.394 > lumped 0.663 kg m\u00b2; using CAD",
+    "thin-shell mesh Iyy=3.418 paints mass by area; not used (would put pack mass on the tail)",
+    "XFoil skipped (xfoil binary not on PATH); NeuralFoil cd unchanged"
+  ],
+  "inertia": {
+    "ixx": 14.056576970760903,
+    "iyy": 1.3937516256638165,
+    "izz": 15.059578450265109,
+    "mass": 9.684971101040354,
+    "ok": true,
+    "shell_ixx": 17.555464715695283,
+    "shell_iyy": 3.4181548765660947,
+    "shell_izz": 19.489656974874187
+  }
+}

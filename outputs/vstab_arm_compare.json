@@ -1,0 +1,63 @@
+{
+  "colocated": {
+    "label": "colocated",
+    "note": "H-stab in wing plane, V-stab at H-stab arm. Split-boom mass model, 0.75\u00d7 V-stab areal.",
+    "vstab_arm_m": 0.9597372543768716,
+    "tail_arm_m": 0.9597372543768716,
+    "mass_kg": 9.722640550260197,
+    "mass_breakdown_kg": {
+      "wing": 3.0412713610399376,
+      "hstab": 0.24950529610107156,
+      "vstabs": 0.2609671146210925,
+      "booms": 0.6455692892799463,
+      "aft_booms": 0.014806993267271357,
+      "solar_cells": 0.656,
+      "mppts": 0.432,
+      "batteries": 2.556,
+      "motors": 0.55,
+      "props": 0.12052049595087704,
+      "fixed": 1.196
+    },
+    "vstab_area_total_m2": 0.38576070158328535,
+    "vstab_height_m": 0.694406852629715,
+    "boom_length_m": 1.1130504987585281,
+    "aft_boom_length_m": 0.05105859747334951,
+    "p_night_w": 89.20148234159312,
+    "margin_wh": -184.30156112342632,
+    "soc_min": 0.00921163444779885,
+    "soc_end": 0.8414997596756916,
+    "closed": false,
+    "cn_beta": 0.10995574287564278,
+    "cn_r": -0.03523870981815164
+  },
+  "vstab_arm_156": {
+    "label": "vstab_arm_156",
+    "vstab_arm_m": 1.56,
+    "tail_arm_m": 0.9597372543768716,
+    "mass_kg": 9.783273110497207,
+    "p_night_w": 87.80112087641386,
+    "margin_wh": -190.06541475010525,
+    "vstab_area_total_m2": 0.23732622857951152,
+    "vstab_height_m": 0.5446630019786449,
+    "boom_length_m": 1.1130504987585281,
+    "aft_boom_length_m": 0.6063981879011571,
+    "soc_min": 0.0032449122669717867,
+    "closed": false,
+    "cn_beta": 0.10995574287564278,
+    "cn_r": -0.057278580221425755,
+    "mass_breakdown_kg": {
+      "wing": 3.0412713610399376,
+      "hstab": 0.24950529610107156,
+      "vstabs": 0.16055119363403955,
+      "booms": 0.6455692892799463,
+      "aft_booms": 0.17585547449133554,
+      "solar_cells": 0.656,
+      "mppts": 0.432,
+      "batteries": 2.556,
+      "motors": 0.55,
+      "props": 0.12052049595087704,
+      "fixed": 1.196
+    },
+    "note": "Night-bus 1-D minimum on the nearest-miss wing with split boom (main 1.5 in 0.290 kg/m to H-stab TE; aft 0.75 in 0.145 kg/m to V TE) and V-stab areal 0.75\u00d7. H-stab in wing plane. Not closed."
+  }
+}

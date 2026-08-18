@@ -1,0 +1,16 @@
+---
+description: When physics is uncertain, bias models against energy closure — never optimistic.
+alwaysApply: true
+---
+
+# Conservative physics
+
+If a number is not measured or not in a datasheet range, implement the **pessimistic** side. A design must not close because the model was kind.
+
+- **Prop maps:** if the (speed, RPM) point is on the manufacturer map, use that T and P (density-scaled). Use C_T(J) similarity only as a check, or to fill a gap that is still below windmill J. Flag if they disagree by more than `PROP_SANITY_REL`. Never n²-scale RPM down at fixed speed once the first map block that covers that speed is already above the required thrust — that invented J past zero-thrust.
+- **ESC / motor:** do not keep 95% ESC efficiency below ~50% duty. Low-RPM cruise is not a free I0 win.
+- **Aero:** do not take unmodeled credits (T-tail height reducing downwash, flight cooling, swirl) unless they hurt the metric you care about. Handbook downwash `2 CL/(π AR)` is already a coarse model — do not “improve” it in the direction that lightens tail download or drag without a cited method.
+- **Mass / solar / battery:** heavier structure, less array, stricter charge limits, not the reverse.
+- **FLAGGED** assumptions must be conservative. If you cannot tell which way an effect goes, pick the way that makes night bus higher or SOC worse, and say so.
+
+Do not silently undo a conservative factor to help a candidate close.

@@ -1,0 +1,1363 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{setspace}
+\usepackage{fancyhdr}
+\usepackage{caption}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black,
+  citecolor=blue!50!black
+}
+
+\setstretch{1.12}
+\setlist[itemize]{leftmargin=1.4em,itemsep=0.25em}
+\setlist[enumerate]{leftmargin=1.6em,itemsep=0.25em}
+\setlength{\parskip}{0.35em}
+\setlength{\parindent}{0pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Solar UAV optimizer}
+\rhead{How the model actually works}
+\cfoot{\thepage}
+
+\newcommand{\flag}{\textcolor{red!60!black}{\textbf{FLAGGED}}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\newenvironment{intuition}{\begin{quote}\small}{\end{quote}}
+\newenvironment{examplebox}{\begin{quote}\small}{\end{quote}}
+\newenvironment{warningbox}{\begin{quote}\small}{\end{quote}}
+
+\title{\textbf{How the Solar UAV Optimizer Works}\\[0.4em]
+\large Assumptions, constraints, physics, and what the numbers are trying to tell us}
+\author{Design toolchain notes for new members\\
+\texttt{solar-uav-design} repository}
+\date{17 August 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% =====================================================================
+\section{Start here: the one-page mental model}
+% =====================================================================
+
+This repository is not a CAD package and it is not a gradient-based ``optimal control'' solver.
+It is a \textbf{physics model plus a discrete search}. For each candidate airplane it answers one question:
+
+\begin{quote}
+\textit{If this airframe flies a clear-sky solstice day at our site, with our packs and our motors, does the battery stay above 20\% overnight and refill by the next afternoon?}
+\end{quote}
+
+If yes, the design \emph{closes}. If not, the model reports how far it missed, in watt-hours. Nothing on the locked grid currently closes.
+
+The night, not the day, is the problem. On a June solstice the array makes on the order of 200\,W at noon. Cruise only needs about 75\,W of bus power. The airplane still fails because for about \textbf{14 hours} the array cannot cover cruise, and two packs only store 773\,Wh of usable energy.
+
+\begin{intuition}
+\textbf{Intuition.} Think of the battery as a water tank, the motors as a tap, and the solar array as a daytime hose. Closing is not ``does the hose fill the tank?'' Closing is ``can the tank last until the hose starts working again, and then refill before the next night?'' Extra noon solar that you cannot store does not help the night.
+\end{intuition}
+
+Three numbers dominate almost every trade:
+
+\begin{enumerate}
+  \item \textbf{Night bus power} --- electrical watts the two motors plus avionics draw in level night loiter.
+  \item \textbf{Battery-true night length} --- hours when array power is less than that night load (not sunset-to-sunrise).
+  \item \textbf{Usable pack energy} --- $2 \times 483\,\mathrm{Wh} \times 80\% = 773\,\mathrm{Wh}$.
+\end{enumerate}
+
+Aero, mass, props, and motors all matter only insofar as they move those three numbers.
+
+Source of truth for locked constants: \code{solar\_uav/config.py}. Every value marked \flag{} is an assumption awaiting a measurement or a team decision. The physics rule is: when uncertain, take the \textbf{pessimistic} side. A design must not close because the model was kind.
+
+% =====================================================================
+\section{The airplane and the mission}
+% =====================================================================
+
+\subsection{What we are designing}
+
+Twin-boom, OV-10-style solar UAV:
+
+\begin{itemize}
+  \item One three-piece wing (S4310): rectangular inboard bay between the booms, two outboard panels that may taper. Leading edge unswept.
+  \item Independent tails: NACA~0010 H-stab spanning the booms \emph{in the wing plane}; two NACA~0010 V-stabs further aft (fin LE behind H-stab TE). Not a $\pi$-tail.
+  \item One tractor propeller and one motor on each boom.
+  \item SunPower C60 cells on the wing top and on the H-stab (ahead of the elevator).
+  \item Two Upgrade Energy GOLD V1 6S packs in parallel, Genasun GVB-8-Li-25.0V boost MPPTs (one per string).
+\end{itemize}
+
+No payload. The mission is an 81-hour endurance record, designed to 89 hours (10\% margin). The optimizer itself simulates \textbf{one 24-hour design day} and requires the pack to refill, because an 89-hour flight is just that day repeated. If you end the afternoon at 95\% instead of 100\%, the next night starts lower, and the mission ratchets empty.
+
+\subsection{Locked mission requirements}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Quantity & Value \\
+\midrule
+Site latitude & $34.646849^\circ\mathrm{N}$ (El Mirage Race Course) \\
+Site longitude & $-117.605977^\circ$ (El Mirage Race Course) \\
+Site elevation & $2837\,\mathrm{ft} = 864.7\,\mathrm{m}$ MSL (USGS lake bed) \\
+Cruise AGL & $400\,\mathrm{ft}$ (density at field + AGL; no ground-effect credit) \\
+Timezone & America/Los\_Angeles \\
+Design day & 21 June 2027 (solstice, longest day) \\
+Mission window & 1 May -- 31 July 2027 \\
+MTOW & $\le 12\,\mathrm{kg}$ \\
+Span & $\le 6\,\mathrm{m}$ \\
+Packs & exactly two (no third pack) \\
+Avionics & $5\,\mathrm{W}$ continuous, day and night (measured) \\
+Climb & $\ge 1.5\,\mathrm{m/s}$ \flag{} \\
+Min airspeed & $\max(1.2\,V_\mathrm{stall},\; 15\,\mathrm{kt})$ \\
+SOC window & 20\%--100\% (80\% of nameplate is usable) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Temperatures are a \textbf{hot design-day}: ambient $24^\circ\mathrm{C}$ dawn to $40^\circ\mathrm{C}$ afternoon \flag{}. A real El Mirage June dawn is often cooler and denser. Keeping $24^\circ\mathrm{C}$ dawn is conservative for night aero. Afternoon $40^\circ\mathrm{C}$ is not a desert extreme --- revisit if cells run hotter than the 75\,$^\circ\mathrm{C}$ noon calibration.
+
+% =====================================================================
+\section{The conservative-physics rule}
+% =====================================================================
+
+If a number is not measured and not in a datasheet range, the model implements the side that makes closure \emph{harder}.
+
+\begin{itemize}
+  \item \textbf{Prop maps.} If the (speed, RPM) point is on the manufacturer table, use that $T$ and $P$, density-scaled. Similarity $C_T(J)$ is a check, or a fallback only while the blade is still below windmill $J$. Never invent a slower RPM at fixed speed once a tabulated block already covers that speed.
+  \item \textbf{ESC / motor.} Do not treat 95\% ESC efficiency as valid below $\sim$50\% duty. Low-RPM cruise is not a free no-load-current win.
+  \item \textbf{Aero.} Do not take unmodeled credits (T-tail height reducing downwash, flight cooling, swirl recovery) unless they \emph{hurt} the metric you care about. Handbook downwash $2C_L/(\pi\,\mathrm{AR})$ is already coarse --- do not ``improve'' it in the direction that lightens tail download.
+  \item \textbf{Mass / solar / battery.} Heavier structure, less array, stricter charge limits --- not the reverse.
+\end{itemize}
+
+\begin{warningbox}
+\textbf{Why this exists.} An earlier interpolator $n^2$-scaled a $22\times12$E propeller down to $\sim$1190\,RPM at night cruise, inventing $J \approx 1.14$ past the map's zero-thrust $J \approx 0.67$. Night bus looked like $\sim$62\,W and the airplane ``closed.'' The honest operating point on the table is $\sim$2070\,RPM and $\sim$133--138\,W. Prefer an honest fail over an optimistic close.
+\end{warningbox}
+
+% =====================================================================
+\section{What kind of optimizer this is}
+% =====================================================================
+
+File: \code{solar\_uav/optimize.py}.
+
+It is a \textbf{mixed continuous / discrete search}. Aero geometry (span, chord, H-stab arm, V-stab arm, boom spacing, taper, washout, elevator fraction) is continuous and is driven by differential evolution (\code{search\_continuous()}). Integer and catalog quantities stay discrete: cell count from packing, pack count (locked at 2), motor (A40-12L direct), ESC (fixed mass), and the inner-loop propeller pick.
+
+A legacy exhaustive grid (\code{search()}) remains for neighborhood dumps. Do not use it as the production path --- it is the slow nested loop that used to take tens of minutes.
+
+The inner loop (\code{\_best\_prop}) is not part of the outer product. For each airframe it:
+
+\begin{enumerate}
+  \item Tries every shortlisted propeller.
+  \item Keeps only those that can make night thrust on 6S.
+  \item Ranks them by night bus power (lowest first).
+  \item Accepts the first that also meets the $1.5\,\mathrm{m/s}$ climb rule.
+\end{enumerate}
+
+So ``the optimizer evaluated 51 props'' does \emph{not} mean $51\times$ the airframe grid. Each airplane picks one fan.
+
+Ranking of results: closed designs first, then highest \code{margin\_wh}. If none closed, the top row is the nearest miss.
+
+Default motor is the A40-12L kv410 direct-drive. Geared A40-10L / 10S stay in the catalog for compare scripts only and are not searched.
+
+% =====================================================================
+\section{Optimization objective}
+% =====================================================================
+
+\textbf{Maximize 24-hour energy margin} (watt-hours above the 20\% SOC floor), subject to refill, climb, MTOW, span, solar layout, and trim/pitch.
+
+After the time march,
+
+\begin{align}
+  E_\mathrm{reserve}
+    &= (\mathrm{SOC}_\mathrm{min} - 0.20)\,E_\mathrm{pack,total}, \\
+  E_\mathrm{refill}
+    &= (\mathrm{SOC}_\mathrm{end} - 0.98)\,E_\mathrm{pack,total}, \\
+  \mathrm{margin}
+    &= \min(E_\mathrm{reserve},\, E_\mathrm{refill}).
+\end{align}
+
+If the pack could not supply the requested power at any step, margin is also capped at $-\,E_\mathrm{unmet}$.
+
+\begin{intuition}
+\textbf{Intuition.} $\mathrm{SOC}_\mathrm{min}$ is ``did we scrape the floor at dawn?'' $\mathrm{SOC}_\mathrm{end}$ is ``are we full again this afternoon?'' Taking the minimum of those two watt-hour gaps means a design that barely survives the night but cannot refill is not allowed to look like a winner. For an 89-hour flight, failing to refill is just a slow way to fail on night two.
+\end{intuition}
+
+A design is \textbf{closed} only if all of these hold:
+
+\begin{itemize}
+  \item $\mathrm{SOC}_\mathrm{min} \ge 0.20$
+  \item unmet energy $< 0.5\,\mathrm{Wh}$
+  \item climb $\ge 1.5\,\mathrm{m/s}$
+  \item $\mathrm{SOC}_\mathrm{end} \ge 0.98$
+\end{itemize}
+
+Margin of $-158\,\mathrm{Wh}$ on the current nearest-miss means: at the worst point the pack is 158\,Wh below the 20\% floor (here $\mathrm{SOC}_\mathrm{min} = 0.036$). It is not ``158\,Wh of extra solar would close it,'' because extra noon solar mostly spills. You need that energy \emph{during the night}, which means lower night watts, a longer pack, or array power that turns on earlier in the morning. The miss is the 20\% reserve, not unmet energy (unmet is 0\,Wh); refill also fails ($\mathrm{SOC}_\mathrm{end} = 0.887$).
+
+% =====================================================================
+\section{Constraints}
+% =====================================================================
+
+\subsection{Hard constraints (candidate is discarded before the mission march)}
+
+Implemented in \code{\_hard\_constraints} and the packing checks:
+
+\begin{center}
+\begin{tabular}{@{}lp{0.62\textwidth}@{}}
+\toprule
+Name & Rule \\
+\midrule
+Span & $b \le 6\,\mathrm{m}$ \\
+Mass & $m \le 12\,\mathrm{kg}$ (re-checked after the prop is chosen) \\
+Solar layout & cells fit the bays; each series string has $1$--$26$ cells; Voc-legal at cold cells \\
+Stall & $1.2\,V_\mathrm{stall} \le 25\,\mathrm{m/s}$ (sanity cap) \\
+Stability & static margin $\ge 8\%\,\mathrm{MAC}$, elevator trim, pitch acceleration $\ge 0.30\,\mathrm{rad/s^2}$, roll rate $\ge 35^\circ/\mathrm{s}$, differential-thrust yaw vs $5^\circ$ sideslip and yaw rate $\ge 5^\circ/\mathrm{s}$ (no rudder). $C_{n_\beta}$ / $|C_{n_r}|$ floors off; derivatives still computed. \\
+Boom & carbon tube length $> 0.4\,\mathrm{m}$ \\
+V-stab / H-stab & V-stab leading edge at or behind H-stab trailing edge (also enforced by flooring $\ell_v$) \\
+Propulsion & some shortlisted prop can make night thrust on 6S \emph{and} climb \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Energy constraints (scored, not discarded)}
+
+Candidates that fail SOC or refill are still written to the CSV so we can see nearest misses. Climb failure also appears in the reason string.
+
+\subsection{Electrical / packing constraints baked into geometry}
+
+\begin{itemize}
+  \item One series string per bay on the locked search (inboard, left outboard, right outboard, H-stab). Strings do not cross joints.
+  \item String $V_\mathrm{oc}$ at $10^\circ\mathrm{C}$ cells must stay $\le 19.2\,\mathrm{V}$ (depleted 6S). That caps a string at \textbf{26 cells}.
+  \item Genasun input $\le 8\,\mathrm{A}$; C60 $I_\mathrm{mp} \approx 5.9\,\mathrm{A}$, so one series string per MPPT is fine.
+  \item Layout pitch $130\,\mathrm{mm}$ (cell is $125\,\mathrm{mm}$ plus gap). A $300\,\mathrm{mm}$ chord still fits two rows.
+  \item After packing, every claimed cell is placed as a $125\,\mathrm{mm}$ square and rejected if it overlaps another cell or hangs off the planform (taper, aileron keep-out, elevator keep-out).
+  \item H-stab cells only on the fixed portion; elevator chord is keep-out (split elevons).
+  \item Tapered wing: no cells on the aileron chord. Rectangular wing: cells may cover ailerons.
+\end{itemize}
+
+% =====================================================================
+\section{Decision variables and search grids}
+% =====================================================================
+
+Aero variables are continuous. Integer / catalog items stay discrete. Every continuous quantity has a \texttt{(low, high, start)} triple in \code{config.CONTINUOUS}. User-locked starts (chord $310\,\mathrm{mm}$, tail arm $0.90\,\mathrm{m}$, airspeed $12\,\mathrm{m/s}$) are not overwritten.
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Variable & Bounds / start & Notes \\
+\midrule
+\multicolumn{3}{l}{\emph{In the DE vector}} \\
+Span $b$ & $4.50$--$6.00\,\mathrm{m}$, start $6.00$ & hard cap $6\,\mathrm{m}$ \\
+Root chord $c_r$ & $0.300$--$0.52\,\mathrm{m}$, start $310\,\mathrm{mm}$ & two C60 rows; high = four pitches \\
+H-stab arm $\ell_t$ & $0.80$--$2.00\,\mathrm{m}$, start $0.90$ & wing AC to H-stab AC \\
+V-stab arm $\ell_v$ & $0.80$--$3.00\,\mathrm{m}$, start $1.20$ & floored so V-stab LE $\ge$ H-stab TE \\
+Elevator fraction & $0.22$--$0.40$, start $0.34$ & split elevons; keep-out for H-stab cells \\
+Taper $\lambda = c_\mathrm{tip}/c_r$ & $0.40$--$1.0$, start $0.60$ & $1.0$ is rectangular; $0.40$ still packs a tip cell \\
+Taper start & $0$--$1$ of outboard, start $0.50$ & $0$ = taper from the boom \\
+Boom spacing & $1.04$--$2.21\,\mathrm{m}$, start $1.30$ & $8$--$17$ cell pitches; H-stab span = boom spacing \\
+Washout tip & $0^\circ$--$5^\circ$, start $0^\circ$ & $5^\circ$ is a lot at this AR \\
+Washout start & $0$--$1$ of outboard, start $0$ & unused at $0^\circ$ washout \\
+\midrule
+\multicolumn{3}{l}{\emph{Continuous, nested (not DE)}} \\
+Loiter airspeed & $8$--$18\,\mathrm{m/s}$, start $12$, $0.01\,\mathrm{m/s}$ step & still floored by $1.3\,V_s$ / $15\,\mathrm{kt}$ \\
+\midrule
+\multicolumn{3}{l}{\emph{Continuous, held at start}} \\
+H-stab AR & $3.5$--$6.0$, start $4.5$ & not in the DE vector \\
+V-stab AR & $1.5$--$3.5$, start $1.5$ & per fin; held at start \\
+Aileron chord frac & $0.20$--$0.30$, start $0.25$ & locked for S\&C sizing \\
+\midrule
+\multicolumn{3}{l}{\emph{Discrete / catalog}} \\
+Packs & $\{2\}$ & locked, integer \\
+Motor & A40-12L kv410 direct & not searched \\
+ESC & fixed $0.060\,\mathrm{kg}$ lump & not searched \\
+$N_\mathrm{cells}$ & from packing & integer, Voc-capped strings \\
+Prop & inner loop, see \S\ref{sec:props} & discrete catalog \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The production search is \code{optimize.search\_continuous()} (differential evolution, start at the DE table above). A neighborhood grid dump is optional via the legacy \code{search()} path.
+
+% =====================================================================
+\section{How one candidate is scored}
+% =====================================================================
+
+Walk this loop in your head for every row of the CSV.
+
+\begin{enumerate}
+  \item Build geometry: planform, boom spacing, H-stab in the wing plane sized to $V_H = 0.50$ (chord also floored by one cell row), V-stabs to $V_V = 0.030$ at their own arm $\ell_v$ (no 1.30\,m area floor), carbon tube from wing $c/4$ to V-stab trailing edge, fuselage pods from wing TE to the prop disk.
+  \item Pack cells: one Voc-legal series string per bay. Reject if cells overlap or hang off the planform.
+  \item Sum mass. Drop if $>12\,\mathrm{kg}$.
+  \item Check stall, static margin, elevator, pitch, roll rate, weathercock, yaw damping.
+  \item For each propeller: night drag at min-power speed $\to$ RPM on the map $\to$ bus watts. Rank by night watts. Keep the cheapest that still climbs at 25.2\,V.
+  \item March 24 hours: solar from pvlib, load = night bus or day bus, $P_\mathrm{net} = P_\mathrm{solar} - P_\mathrm{load}$, battery with 6\,A/pack charge cap.
+  \item Record $\mathrm{SOC}_\mathrm{min}$, $\mathrm{SOC}_\mathrm{end}$, margin, flags (especially prop table vs.\ similarity).
+\end{enumerate}
+
+The rest of this document is the physics inside those steps.
+
+% =====================================================================
+\section{Atmosphere and site}
+% =====================================================================
+
+Files: \code{solar\_uav/aircraft.py} (density), \code{solar\_uav/environment.py} (sun and temperature).
+
+Site pressure is ISA-style at field elevation plus $400\,\mathrm{ft}$ AGL ($h \approx 987\,\mathrm{m}$ MSL):
+
+\begin{equation}
+  p = 101325
+  \left(1 - 2.25577\times 10^{-5}\, h\right)^{5.25588}
+  \quad [\mathrm{Pa}].
+\end{equation}
+
+Density is the ideal-gas law at that pressure:
+
+\begin{equation}
+  \rho = \frac{p}{R T}, \qquad R = 287.05\,\mathrm{J/(kg\,K)}.
+\end{equation}
+
+Two densities are frozen for the mission (AeroSandbox ISA at field $+$ 400\,ft AGL, with the design-day temperature offset):
+
+\begin{itemize}
+  \item Night: $T = 26^\circ\mathrm{C}$ ($T_\mathrm{amb,min}+2$) $\Rightarrow$ $\rho_N = 1.048\,\mathrm{kg/m^3}$.
+  \item Day: $T = 36^\circ\mathrm{C}$ ($T_\mathrm{amb,max}-4$) $\Rightarrow$ $\rho_D = 1.014\,\mathrm{kg/m^3}$.
+\end{itemize}
+
+Air viscosity is Sutherland's law at the night temperature, $\mu = 1.84\times 10^{-5}\,\mathrm{Pa\,s}$. Reynolds number of a length $\ell$ is
+
+\begin{equation}
+  \mathrm{Re}_\ell = \frac{\rho V \ell}{\mu}.
+\end{equation}
+
+\begin{intuition}
+\textbf{Intuition.} Hot air is thinner, and El Mirage at $\sim$987\,m MSL is already thinner than sea level. A thinner night means the wing needs a higher $C_L$ (or more speed) to hold the same weight, so induced drag rises. Using a hot dawn is deliberately unkind to night watts. Ground effect is not credited: density is at field $+$ 400\,ft AGL, not a cushion of extra lift near the lake bed.
+\end{intuition}
+
+% =====================================================================
+\section{Geometry}
+% =====================================================================
+
+\subsection{Wing planform}
+
+The wing is three pieces. Inboard, between the booms, the chord is $c_r$. Outboard of each boom the chord stays $c_r$ until a taper-start station, then linearly tapers to $c_\mathrm{tip} = \lambda c_r$. Leading edge unswept, so taper is trailing-edge cut.
+
+Let $y_b$ be half the boom spacing and $L_\mathrm{out} = b/2 - y_b$ the outboard panel length. With taper-start fraction $f$ (0 = start at the boom),
+
+\begin{align}
+  L_\mathrm{rect} &= f\, L_\mathrm{out}, \\
+  L_\mathrm{tap}  &= (1-f)\, L_\mathrm{out}, \\
+  S &= 2 y_b c_r + 2 L_\mathrm{rect} c_r + L_\mathrm{tap}(c_r + c_\mathrm{tip}).
+\end{align}
+
+Mean aerodynamic chord for an unswept piecewise-linear planform:
+
+\begin{equation}
+  \bar{c} = \frac{2}{S}\int_{-b/2}^{b/2} c(y)^2\,\mathrm{d}y.
+\end{equation}
+
+Aspect ratio is the usual $ \mathrm{AR} = b^2 / S $.
+
+Boom spacing and area depend on each other (H-stab span = boom spacing, and $V_H$ uses $S$ and $\bar{c}$), so the code iterates that loop 16 times.
+
+\subsection{Horizontal tail}
+
+Target tail volume
+
+\begin{equation}
+  V_H = \frac{S_H \ell_t}{S \bar{c}} = 0.50 \quad \text{\flag{}}.
+\end{equation}
+
+When boom spacing is forced (e.g.\ $1.30\,\mathrm{m}$), H-stab span equals that spacing and chord is
+
+\begin{equation}
+  c_H = \max\left(\frac{V_H S \bar{c}}{\ell_t\, b_\mathrm{boom}},\;
+  c_{H,\min}\right),
+\end{equation}
+
+where $c_{H,\min}$ is the chord that still fits one $130\,\mathrm{mm}$ cell row after the elevator keep-out. That is why a short tail arm does not shrink the H-stab to nothing: solar packing floors the chord.
+
+\subsection{Vertical tails}
+
+The V-stab aerodynamic centre sits on its own arm $\ell_v$, independent of the H-stab arm $\ell_t$. Total area (both fins)
+
+\begin{equation}
+  V_V = \frac{S_V \ell_v}{S b} = 0.030 \quad \text{(user; both fins together)}.
+\end{equation}
+
+There is \textbf{no} fin-area floor at a 1.30\,m arm: stretching $\ell_v$ shrinks $S_V$ at fixed $V_V$. Each fin has area $S_V/2$ and $\mathrm{AR}_V = 1.5$ (held at the start of \code{CONTINUOUS}). No rudder; yaw control is differential thrust. No $\pi$-tail endplate credit on $C_{n_\beta}$.
+
+The V-stab leading edge is required to sit at or behind the H-stab trailing edge:
+
+\begin{equation}
+  \ell_v \ge \ell_t + 0.75\, c_H + 0.25\, c_V(\ell_v).
+\end{equation}
+
+$c_V$ shrinks as $\ell_v$ grows, so the code iterates to the fixed point and floors any requested $\ell_v$ that would overlap the H-stab in $x$.
+
+\subsection{Boom length}
+
+The carbon tube runs from the wing quarter-chord (at the boom) to the V-stab trailing edge. The fuselage pod covers prop disk $\to$ wing trailing edge and is \emph{not} part of $L_\mathrm{boom}$.
+
+\begin{equation}
+  L_\mathrm{boom} = x_{\mathrm{V,TE}} - \tfrac14 c_r,
+\end{equation}
+
+where $x_{\mathrm{V,TE}} = \tfrac14 \bar{c} + \ell_v + \tfrac34 c_V$. The H-stab camber is in the \textbf{wing plane} ($z_H = 0$); the fins stand up from the boom further aft. Fuselage length and CAD-scaled wetted area (one pod):
+
+\begin{align}
+  L_\mathrm{fuse} &= 0.70\,\mathrm{m} + c_r, \\
+  S_{\mathrm{wet,fuse}} &= 173128.421\,\mathrm{mm}^2 \times \frac{L_\mathrm{fuse}}{980\,\mathrm{mm}}.
+\end{align}
+
+The $980\,\mathrm{mm} / 173128.421\,\mathrm{mm}^2$ point is from CAD. Linear scale assumes constant section (motor/spinner girth does not grow with chord).
+
+% =====================================================================
+\section{Mass}
+% =====================================================================
+
+Wetted-area factor $k_w = 2.05$ (both sides plus a little thickness). Wing structure uses $0.84\times 0.8 = 0.672\,\mathrm{kg/m^2}$ of wetted area (user, 17 August 2026: 0.8$\times$ the previous main-wing model only), \emph{including} encapsulation, \emph{excluding} cells. Tails stay at $0.44\,\mathrm{kg/m^2}$ wetted.
+
+\begin{align}
+  m_\mathrm{wing}  &= 2.05\, S \times 0.672, \\
+  m_{H}            &= 2.05\, S_H \times 0.44, \\
+  m_{V}            &= 2.05\, S_V \times 0.44, \\
+  m_\mathrm{booms} &= 2 \times L_\mathrm{boom} \times 0.174\,\mathrm{kg/m}, \\
+  m_\mathrm{cells} &= N_\mathrm{cells} (0.0065 + 0.0015)\,\mathrm{kg}, \\
+  m_\mathrm{MPPT}  &= N_\mathrm{strings} \times 0.108\,\mathrm{kg}, \\
+  m_\mathrm{batt}  &= 2 \times 1.278\,\mathrm{kg}.
+\end{align}
+
+Boom linear density $0.174\,\mathrm{kg/m}$ is the 1.0\,in OD carbon tube (was $0.290\,\mathrm{kg/m}$ at $\varnothing 38.1\,\mathrm{mm}$). Parasite drag uses the 25.4\,mm OD.
+
+Fixed masses (prototype table): avionics 0.30, power boards 0.10, servos 0.08, ESCs 0.06, wiring 0.096, fuselage pods 0.20, superstructures 0.20, boom/V-stab interfaces 0.10, boom/H-stab fittings 0.06 (same lump as the old $\pi$-tip joint). Total fixed $= 1.196\,\mathrm{kg}$.
+
+Motors and props are catalog masses (two of each).
+
+\begin{examplebox}
+\textbf{Worked example --- current nearest-miss} ($b=5.91$, $c_r=0.314$, $\lambda=0.60$, $\ell_t=1.28$, $\ell_v=1.70$, 76 cells).
+
+\begin{center}
+\begin{tabular}{@{}lr@{}}
+\toprule
+Item & Mass [kg] \\
+\midrule
+Wing structure & 2.25 \\
+H-stab & 0.22 \\
+V-stabs & 0.15 \\
+Booms ($2\times 1.87\,\mathrm{m}\times 0.174$) & 0.65 \\
+Cells + interconnect & 0.61 \\
+Four MPPTs & 0.43 \\
+Two packs & 2.56 \\
+Two A40-12L & 0.55 \\
+Two APC $16\times12$E & 0.12 \\
+Fixed & 1.20 \\
+\midrule
+\textbf{Total} & \textbf{8.75} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The 0.8$\times$ wing areal cut $\sim$0.6\,kg off the previous 0.84\,kg/m$^2$ wing. The 1\,in tube is both lighter per metre and thinner in parasite drag than the 1.5\,in / 0.290\,kg/m boom. The V-stabs are smaller than a co-located $\pi$-tail at $\ell_t$ because $\ell_v$ is longer at fixed $V_V$. Batteries are still the heaviest single lump.
+\end{examplebox}
+
+\begin{intuition}
+\textbf{Intuition.} You do not ``buy'' span for free. A 6\,m wing at 0.672\,kg/m$^2$ wetted is already $\sim$2.3\,kg before cells. Lengthening $\ell_v$ (not just $\ell_t$) adds carbon on \emph{both} booms, because the tube still runs to the V-stab trailing edge. That extra mass flies all night.
+\end{intuition}
+
+% =====================================================================
+\section{Aerodynamics}
+% =====================================================================
+
+File: \code{solar\_uav/aircraft.py}. Airfoil polars: NeuralFoil \code{xlarge} via AeroSandbox, cached in \code{data/polars/}. Wing section is S4310; tails are NACA~0010. Polar grid: $\mathrm{Re} \in \{50,100,150,200,300\}\times 10^3$, $\alpha \in [-6^\circ, 16^\circ]$ at $0.25^\circ$.
+
+NeuralFoil polars are not monotonic in $C_L$ at negative $\alpha$. The code takes the \textbf{increasing-$C_L$ pre-stall branch} (from $C_{L,\min}$ to $C_{L,\max}$), then interpolates $c_d$, $\alpha$, and $c_m$ versus $C_L$ and $\log\mathrm{Re}$.
+
+\subsection{Level-flight lift}
+
+Dynamic pressure and net lift coefficient (weight on the wing reference area):
+
+\begin{equation}
+  q = \tfrac12 \rho V^2, \qquad
+  C_{L,\mathrm{net}} = \frac{mg}{q S}.
+\end{equation}
+
+The H-stab carries a (usually negative) load, so the wing must make a little more than $C_{L,\mathrm{net}}$:
+
+\begin{equation}
+  C_{L,w}\, S + C_{L,H}\, S_H = mg
+  \quad \Rightarrow \quad
+  C_{L,w} = C_{L,\mathrm{net}} - \frac{S_H}{S} C_{L,H}.
+\end{equation}
+
+$C_{L,H}$ is not a guess. It comes from the trim iteration below.
+
+\begin{intuition}
+\textbf{Intuition.} $C_{L,\mathrm{net}}$ is ``how hard is this wing working, as a whole, to hold the airplane up?'' If the tail is pushing down, the wing has to make \emph{more} lift than the weight, and induced drag is paid on that higher wing $C_L$. That is why a badly trimmed tail is not free.
+\end{intuition}
+
+\subsection{Lift-curve slopes (Helmbold)}
+
+Finite-wing lift slope, per radian:
+
+\begin{equation}
+  a = \frac{2\pi}{1 + 2/\mathrm{AR}}.
+\label{eq:helmbold}
+\end{equation}
+
+Used for the wing ($a_w$) and the H-stab ($a_t$ with the H-stab's actual AR). This is the classical correction that a high-AR wing is closer to $2\pi$ and a stubby tail is much less.
+
+Downwash derivative at the tail, handbook:
+
+\begin{equation}
+  \frac{\mathrm{d}\varepsilon}{\mathrm{d}\alpha} = \frac{2 a_w}{\pi\,\mathrm{AR}}.
+\end{equation}
+
+\subsection{Oswald efficiency (induced-drag factor)}
+
+Rectangular calibration $e_0 = 0.90$ \flag{}. Taper scales that using AeroSandbox's Nita--Scholz estimate:
+
+\begin{equation}
+  e = \min\left(0.98,\;
+      e_0 \frac{e_\mathrm{Nita}(\lambda_\mathrm{eq},\mathrm{AR})}
+               {e_\mathrm{Nita}(1,\mathrm{AR})}\right).
+\end{equation}
+
+$\lambda_\mathrm{eq}$ is an equivalent taper from the actual area and tip chord, clipped to $[0.2, 1]$. The 0.98 cap is a hard ceiling: we do not claim a better-than-nearly-elliptical wing.
+
+On the current $\lambda = 0.60$, $\mathrm{AR} = 21.3$ airplane, this \textbf{hits the 0.98 cap}.
+
+\begin{intuition}
+\textbf{Intuition.} Induced drag is the price of making lift with a finite wing: the tip vortices tilt the lift vector backward. Elliptical spanload pays the minimum price, $C_{D_i} = C_L^2/(\pi\,\mathrm{AR})$. Oswald $e$ is ``how close are we to that ellipse?'' $e=0.90$ is an honest rectangle. $e=0.98$ is ``this taper already did most of the job.'' That is why adding washout on top of $\lambda=0.4$ does not buy much --- there is almost no induced-drag left to save, and the cap forbids claiming more.
+\end{intuition}
+
+\subsection{Induced drag of the wing}
+
+\begin{equation}
+  C_{D_i,w} = \frac{C_{L,w}^2}{\pi\,\mathrm{AR}\, e}.
+\label{eq:cdi}
+\end{equation}
+
+If washout is zero, that is the whole induced model. If washout is nonzero, $e$ is replaced by an effective $e$ from lifting-line (see \S\ref{sec:washout}).
+
+\subsection{Wing profile drag}
+
+At the local $(C_{L,w}, \mathrm{Re}_{\bar{c}})$, read $c_d$ from the S4310 NeuralFoil polar:
+
+\begin{equation}
+  C_{D_{p,w}} = c_{d,\mathrm{S4310}}\!\left(C_{L,w},\, \mathrm{Re}_{\bar{c}}\right).
+\end{equation}
+
+This is a 2D section drag treated as constant across the span when washout is zero. With washout, a strip integral adds the difference vs.\ the untwisted wing (again \S\ref{sec:washout}).
+
+\subsection{Horizontal-stabilizer drag}
+
+Profile from NACA~0010 at the tail's $C_{L,H}$ and $\mathrm{Re}_{c_H}$. Induced with a conservative tail Oswald $e_H = 0.70$:
+
+\begin{equation}
+  C_{D_{p,H}} = c_{d,0010}(C_{L,H}, \mathrm{Re}_{c_H}), \qquad
+  C_{D_{i,H}} = \frac{C_{L,H}^2}{\pi\,\mathrm{AR}_H \cdot 0.70}.
+\end{equation}
+
+These coefficients are referenced to $S_H$, not $S$.
+
+\subsection{Vertical-stabilizer drag}
+
+Both fins at $C_L = 0$ (no sideslip in the cruise model):
+
+\begin{equation}
+  C_{D_{p,V}} = c_{d,0010}(0, \mathrm{Re}_{c_H}),
+\end{equation}
+
+referenced to $S_V$ (the H-stab chord Reynolds number is used as a stand-in for the fin). No induced term: they are not lifting in this model.
+
+\subsection{Parasite drag of pods and booms}
+
+Turbulent skin friction (Blasius-like power law, floored at $\mathrm{Re}=10^4$):
+
+\begin{equation}
+  C_f = \frac{0.074}{\mathrm{Re}^{0.2}}.
+\end{equation}
+
+Two fuselage pods. Wetted area is interpolated from CAD ($173128.421\,\mathrm{mm}^2$ at $L=980\,\mathrm{mm}$), Reynolds number on the actual pod length $L_\mathrm{fuse} = 0.70\,\mathrm{m}+c_r$, form factor 1.25:
+
+\begin{equation}
+  f_\mathrm{pods} = 2\, C_f(\mathrm{Re}_{L_\mathrm{fuse}}) \cdot 1.25 \cdot S_{\mathrm{wet,fuse}}(L_\mathrm{fuse}).
+\end{equation}
+
+Two circular booms, wetted area $\pi D L$ per tube, $D = 1.0\,\mathrm{in} = 25.4\,\mathrm{mm}$, form/interference 1.10 on the booms, then another 1.10 on the sum:
+
+\begin{align}
+  f_\mathrm{booms} &= 2\, C_f(\mathrm{Re}_L) \cdot 1.10 \cdot (\pi D L_\mathrm{boom}), \\
+  f_\mathrm{parasite} &= 1.10\,(f_\mathrm{pods} + f_\mathrm{booms}).
+\end{align}
+
+$f$ is a drag area: $D = q f$. No laminar-run credit, no T-tail wake shielding.
+
+\subsection{Putting drag together}
+
+\begin{equation}
+\begin{aligned}
+  D = q \Big[&
+      S \bigl(C_{D_{p,w}} + C_{D_{i,w}}\bigr)
+    + S_H \bigl(C_{D_{p,H}} + C_{D_{i,H}}\bigr) \\
+    &+ S_V C_{D_{p,V}}
+    + f_\mathrm{parasite}
+  \Bigr] \times k_\mathrm{trim}.
+\end{aligned}
+\label{eq:drag}
+\end{equation}
+
+$k_\mathrm{trim} = 1.00$. There is no lumped ``trim drag fudge.'' Trim is modeled by actually loading the tail.
+
+\subsection{Incidence and trim}
+\label{sec:trim}
+
+The wing is jigged so the \textbf{booms fly at $\alpha \approx 0$} at night min-airspeed. That is a structural / packaging choice (the carbon tubes want to be at zero), not an aerodynamic optimum.
+
+NeuralFoil gives the 2D geometric angle $\alpha_{2D}$ that produces the cruise $C_L$ on S4310. The wing also has an induced angle $C_L/(\pi\,\mathrm{AR}\,e)$. Boom angle of attack is
+
+\begin{equation}
+  \alpha_\mathrm{boom} = \alpha_{2D} + \frac{C_L}{\pi\,\mathrm{AR}\,e} - i_w.
+\end{equation}
+
+Setting $\alpha_\mathrm{boom}=0$ at the design point:
+
+\begin{equation}
+  i_w = \alpha_{2D}(C_L) + \frac{C_L}{\pi\,\mathrm{AR}\,e}.
+\label{eq:iw}
+\end{equation}
+
+On the current airplane, $i_w \approx 3.70^\circ$.
+
+The H-stab is jigged so the \textbf{elevator is $\approx 0$} at that same point. Handbook downwash at the tail:
+
+\begin{equation}
+  \varepsilon = \frac{2 C_{L,w}}{\pi\,\mathrm{AR}}
+  \qquad \text{(radians; no T-tail height credit)}.
+\label{eq:eps}
+\end{equation}
+
+Section $c_m$ about $c/4$ from NeuralFoil, tail volume $V_H$, tail lift slope $a_t$:
+
+\begin{equation}
+  i_t = \varepsilon + \frac{c_m}{V_H a_t}
+  \qquad \text{(angles in consistent units)}.
+\label{eq:it}
+\end{equation}
+
+On the current airplane, $i_t \approx 0.07^\circ$.
+
+Inside \code{drag\_n}, three iterations:
+
+\begin{enumerate}
+  \item From current $C_{L,w}$, get $\alpha_{2D}$ and $\alpha_i = C_{L,w}/(\pi\,\mathrm{AR}\,e)$.
+  \item Boom $\alpha_f = \alpha_{2D} + \alpha_i - i_w$.
+  \item $C_{L,H} = a_t\,(\alpha_f + i_t - \varepsilon)$.
+  \item $C_{L,w} \leftarrow C_{L,\mathrm{net}} - (S_H/S) C_{L,H}$.
+\end{enumerate}
+
+\begin{intuition}
+\textbf{Intuition for \eqref{eq:eps}.} A lifting wing throws air down. The tail flies in that descending wake, so it sees a more negative angle than the boom. $\varepsilon \approx 2C_L/(\pi\,\mathrm{AR})$ is the standard horseshoe-vortex estimate: more lift or less AR $\Rightarrow$ stronger downwash. A T-tail sits higher, in weaker downwash. The H-stab is in the \textbf{wing plane}, so there is no height credit to take. If VLM at that $z_H=0$ is \emph{stronger} than handbook, production uses VLM (currently $k_\varepsilon \approx 1.21$). We never keep a $k_\varepsilon<1$ ``T-tail'' gift.
+\end{intuition}
+
+AeroSandbox is used as a \textbf{conservative envelope}, not as the scoring polar (\code{solar\_uav/asb\_physics.py}):
+
+\begin{itemize}
+  \item Atmosphere is the AeroSandbox ISA at field $+$ 400\,ft AGL, with the design-day temperature offset.
+  \item Wing-only VLM downwash at the real H-stab height ($z_H=0$): if it is \emph{weaker} than \eqref{eq:eps}, keep the handbook (no T-tail credit). If it is stronger, use VLM. Induced $e$ is $\min(e_\mathrm{handbook}, e_\mathrm{VLM})$.
+  \item AeroBuildup $C_{l_p}$, $C_{n_\beta}$, $C_{n_r}$: keep the number that makes roll rate, weathercock, or yaw damping \emph{harder}.
+  \item Pitch inertia is $\max($lumped, CAD-located \code{MassProperties} $I_{yy})$. Area-painted thin-shell inertia is printed as a FLAG and not used.
+  \item XFoil vs NeuralFoil at cruise $C_L$: inflate section $c_d$ if XFoil is draggier; never deflate. If the XFoil binary is missing, FLAG and keep NeuralFoil.
+\end{itemize}
+
+Run \code{scripts/run\_asb\_audit.py} to print the envelope on the reference airplane.
+
+\subsection{Static margin}
+
+CG is locked at the wing quarter-chord \flag{}. Neutral-point shift is then entirely the tail:
+
+\begin{equation}
+  \mathrm{SM}
+    = V_H \frac{a_t}{a_w}
+      \left(1 - \frac{\mathrm{d}\varepsilon}{\mathrm{d}\alpha}\right).
+\end{equation}
+
+Target was 12\% MAC; minimum accepted is 8\%. The current airplane sits at \textbf{43\% MAC} --- very stable. $V_H$ comes out $0.69$ rather than the $0.50$ volume target because the H-stab chord is floored by one $130\,\mathrm{mm}$ cell row after the elevator keep-out. That extra tail is packing, not an SM request.
+
+Elevator effectiveness is the empirical stand-in $\tau = \sqrt{c_e/c}$ \flag{}. Elevator must trim a $\Delta C_L = 1$ at $\le 15^\circ$. Pitch acceleration about the CG must reach $0.30\,\mathrm{rad/s^2}$ ($\sim 20^\circ$ in 1.5\,s from rest) at min airspeed.
+
+\subsection{Stall and the speeds we actually fly}
+
+2D $C_{L,\max}$ is the peak of the NeuralFoil pre-stall branch. 3D knockdown:
+
+\begin{equation}
+  C_{L,\max,3\mathrm{D}} = 0.90\, C_{L,\max,2\mathrm{D}}.
+\end{equation}
+
+For S4310, $C_{L,\max,2\mathrm{D}} \approx 1.44$, so $C_{L,\max,3\mathrm{D}} \approx 1.30$. Stall speed:
+
+\begin{equation}
+  V_s = \sqrt{\frac{2mg}{\rho S C_{L,\max,3\mathrm{D}}}}.
+\end{equation}
+
+Operational floor (flown loiter speed):
+
+\begin{equation}
+  V_{\min} = \max\bigl(1.3\, V_s,\; 7.7\,\mathrm{m/s}\bigr).
+\end{equation}
+
+$1.2\,V_s$ remains a never-below stall margin. The 89-hour flight is a banked loiter, so the energy march pays $1.3\,V_s$. The $7.7\,\mathrm{m/s}$ is 15\,kt of required crosswind capability. On the current airplane $1.3 V_s = 11.42\,\mathrm{m/s}$ and \textbf{binds}: unconstrained aero min-power is $\sim$9.2\,m/s ($DV \approx 29\,\mathrm{W}$ vs.\ $36\,\mathrm{W}$ at the floor). That extra 2.2\,m/s is about $+10\,\mathrm{W}$ of night bus.
+
+Cruise is \textbf{not} $V_{\min}$ blindly. It is the speed $\ge V_{\min}$ that minimises shaft power $P_\mathrm{aero} = D V$. The 1-D search is bounded to $8$--$18\,\mathrm{m/s}$, starts at $12\,\mathrm{m/s}$, and refines to $0.01\,\mathrm{m/s}$ (Brent), still floored by the loiter margin. On the current airplane the floor \textbf{is} the min-power point: unconstrained aero min-power is $\sim$9.2\,m/s, but $1.3 V_s = 11.42\,\mathrm{m/s}$ binds.
+
+\begin{intuition}
+\textbf{Why min power, not max $L/D$?} Endurance on a battery cares about \emph{watts}, not distance. Max $L/D$ minimises drag (energy per metre). Min $D V$ minimises energy per second. For a solar loiterer the clock is the enemy, so we fly min power. The extra $1.3$ factor (vs.\ $1.2$) is so a $20^\circ$ bank does not eat the stall margin --- $\sqrt{1/\cos 20^\circ}\approx 1.03$, so $1.3$ already covers turn-stall.
+\end{intuition}
+
+Climb is the ideal excess-power expression at day min-power speed, using max thrust available on 25.2\,V:
+
+\begin{equation}
+  \dot{h} = V \frac{T - D}{mg}.
+\end{equation}
+
+No acceleration, no prop-in-climb polar change, no takeoff ground roll. On the 12L + APC $16\times12$E this is $\sim 15\,\mathrm{m/s}$ versus a $1.5\,\mathrm{m/s}$ requirement. Climb is not the constraint. It only vetoes fans that are efficient at cruise but cannot pull.
+
+\subsection{Ailerons, elevons, and fins}
+\label{sec:control}
+
+The performance polar does not fly the airplane. Roll, weathercock, and yaw damping are hard constraints so a later sim cannot inherit a 5$^\circ$/s placeholder.
+
+\textbf{Ailerons} are 25\% local chord. On a taper they start where the second cell row drops (or further inboard if 35$^\circ$/s is not met) and carry no cells on the moving surface. On a rectangle, cells may cover the aileron. \textbf{Elevons} are the existing elevator, split left/right, used differentially for extra roll. There is \textbf{no rudder}; yaw is differential thrust.
+
+Steady roll helix (full $20^\circ$ aileron + $20^\circ$ elevon):
+
+\begin{equation}
+  \frac{p b}{2V} = -\frac{C_{l_{\delta a}}\delta_a + C_{l_{\delta e}}\delta_e}{C_{l_p}},
+  \qquad
+  C_{l_{\delta a}} = \frac{2 a_w \tau}{S b}\int_{y_1}^{y_2} c(y)\, y\,\mathrm{d}y.
+\end{equation}
+
+$C_{l_p}$ is a high-AR handbook estimate inflated 15\% so the rate is harder to achieve. Acceptance: $p \ge 35^\circ/\mathrm{s}$ at loiter speed ($\sim 20^\circ$ bank in about a second). A 10\,cm tip strip on this wing makes $\sim 5^\circ/\mathrm{s}$ --- that was the sim.
+
+Weathercock and yaw damping (two NACA~0010 fins, Helmbold $a_v$, $\eta=0.90$, no endplate credit):
+
+\begin{equation}
+  C_{n_\beta} = \eta a_v V_V, \qquad
+  C_{n_r} = -2\eta a_v \frac{S_V}{S}\left(\frac{\ell_v}{b}\right)^2.
+\end{equation}
+
+Floors: $C_{n_\beta}\ge 0.10$, $|C_{n_r}|\ge 0.030$ are \textbf{off} (differential thrust is the yaw effector). Derivatives are still computed. Hinge/side-gap drag of ailerons and elevons is added to the polar.
+
+Differential-thrust yaw (one motor $T_{\max}$, the other idle) must overpower weathercock at $5^\circ$ $\beta$. The \textbf{corrective rate} is the still-air heading rate with loiter-preserving $\Delta T$ (one motor up, the other down, sum held at drag) versus $C_{n_r}$:
+
+\begin{equation}
+  r = \frac{N_{\mathrm{DT,loiter}}}{q S b\, |C_{n_r}|\, b/(2V)},
+  \qquad
+  N_{\mathrm{DT,loiter}} = 2\min(T_{\mathrm{cruise}},\, T_{\max}-T_{\mathrm{cruise}})\, y_{\mathrm{boom}}.
+\end{equation}
+
+Acceptance: $r \ge 5^\circ/\mathrm{s}$ (unwind $5^\circ$ in about a second). $C_{n_r}$ for this rate is the \emph{more negative} of handbook vs AeroBuildup. $I_{zz}$ sizes the initial $\dot r$ and the 1-DOF time to yaw $5^\circ$; motor spool-up is not modelled, so those two are optimistic. Max-effort (idle one motor) rate is reported and is not the gate.
+
+\textbf{No dihedral} is modelled. Spiral-mode static stability is not claimed; the autopilot is assumed to hold a slow spiral with the sized ailerons.
+
+\subsection{Washout}
+\label{sec:washout}
+
+Geometric washout is tip leading-edge down, starting at a station on the outboard panel. \textbf{Zero washout does not change the lumped polar at all} --- the lifting-line code is not even called. That is deliberate, so the published baseline cannot move when someone toggles a unused twist flag.
+
+When twist is nonzero, a Fourier lifting-line (Prandtl / Anderson, 11 odd modes on the half-span, file \code{solar\_uav/lifting\_line.py}) solves
+
+\begin{equation}
+  \Gamma(\theta) = 2 b V \sum_{n=1,3,\ldots} A_n \sin(n\theta),
+  \qquad y = (b/2)\cos\theta.
+\end{equation}
+
+Section lift $c_\ell = 2\Gamma /(V c)$. Wing $C_L = \pi\,\mathrm{AR}\, A_1$. Trefftz-plane Oswald:
+
+\begin{equation}
+  e_\mathrm{LL} = \frac{A_1^2}{\sum n A_n^2}.
+\end{equation}
+
+The model does \emph{not} replace handbook $e$ with $e_\mathrm{LL}$ outright (that would let an inviscid method invent a better wing than the calibration). It only reports the \emph{ratio} of twisted to untwisted lifting-line $e$, times the handbook value, still capped at 0.98:
+
+\begin{equation}
+  e_\mathrm{eff} = \min\left(0.98,\;
+    e_\mathrm{handbook} \frac{e_\mathrm{LL,twisted}}{e_\mathrm{LL,untwisted}}\right).
+\end{equation}
+
+Strip profile drag is integrated at the collocation stations; only the \emph{increment} vs.\ the same planform untwisted is added. Stall becomes first-strip $C_{L,\max}$, and cannot exceed the untwisted 3D cap.
+
+\begin{examplebox}
+\textbf{Example --- why the search refused washout.}
+On $\lambda = 0.4$ (and on the current $\lambda \approx 0.60$) the spanload is already near-elliptical, $e$ is already at the 0.98 cap. Twist cannot raise $e$ further. It \emph{can} unload the tip (good for stall) but the first-strip rule and the profile-drag increment make cruise slightly worse. The current search parked washout at $\approx 0^\circ$. On a \emph{rectangular} wing, washout does raise $e$ ($0.90 \to \sim 0.95$), but flying a rectangle to get that twist benefit also adds tip chord, cells, mass, and drops AR. That package still lost on margin. The optimizer's message: \textbf{taper already bought the induced-drag win; do not pay mass for a second copy of the same win.}
+\end{examplebox}
+
+\subsection{Worked drag budget (current night cruise)}
+\label{sec:dragbudget}
+
+$m = 8.745\,\mathrm{kg}$, $V = 11.42\,\mathrm{m/s}$ ($1.3 V_s$ binds), $\rho = 1.048$, $q = 68.3\,\mathrm{Pa}$, $S = 1.636\,\mathrm{m^2}$.
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+ & $C_L$ / $C_D$ & Drag [N] & Share \\
+\midrule
+Net airplane $C_L$ & 0.768 & & \\
+Wing $C_L$ & 0.784 & & \\
+H-stab $C_L$ & $-0.109$ & & \\
+Wing profile (S4310, $\mathrm{Re}_{\bar{c}}\approx 1.84\times 10^5$) & $C_{D_p}=0.0123$ & 1.38 & 44\% \\
+Wing induced ($e=0.98$) & $C_{D_i}=0.0094$ & 1.05 & 33\% \\
+H-stab profile & & 0.20 & 6\% \\
+H-stab induced ($e_H=0.70$) & & 0.018 & 1\% \\
+V-stab profile ($C_L=0$) & & 0.14 & 4\% \\
+Pods & & 0.17 & 5\% \\
+Booms ($\varnothing 25\,\mathrm{mm}$, $L=1.87\,\mathrm{m}$) & & 0.11 & 4\% \\
+Control-surface gaps & & 0.10 & 3\% \\
+\midrule
+\textbf{Total} & $C_D=0.0283$ on $S$ & \textbf{3.16} & \\
+Aero power $DV$ & & \textbf{36.1 W} & \\
+$L/D$ & 27.1 & & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{intuition}
+\textbf{Read this table like a designer, not an aerodynamicist showing off.} About 77\% of cruise drag is the wing. Profile now beats induced (44\% vs.\ 33\%) because the airplane is lighter and is forced to fly $1.3 V_s$ instead of aero min-power. Unconstrained min-power is $\sim$9.2\,m/s and $DV \approx 29\,\mathrm{W}$; the speed floor costs about $7\,\mathrm{W}$ of aero and $\sim$10\,W of bus. The entire empennage plus pods plus booms plus gaps is $\sim$0.74\,N. Polishing boom fairings will not close a 158\,Wh night gap. The remaining polar levers at fixed mass are $C_{L,\max}$ (or relaxing $1.3\to 1.2$) and wing profile $C_D$. Span and $e$ are already maxed.
+\end{intuition}
+
+Aero power 36\,W is \emph{not} night bus power. The propeller, motor, ESC, and the 5\,W avionics sit between $DV$ and the battery. That chain currently turns 36\,W of aero into $70.2\,\mathrm{W}$ of propulsion plus $5\,\mathrm{W}$ avionics $= 75.2\,\mathrm{W}$ on the bus. Propulsion, not the polar, is where most of the remaining watts live.
+
+% =====================================================================
+\section{Solar array}
+% =====================================================================
+
+Files: \code{solar\_uav/environment.py}, \code{solar\_uav/components/solar\_array.py}.
+
+\subsection{Sun}
+
+pvlib Ineichen clear-sky at the site, minute resolution. The array is \textbf{horizontal} (wing top). Angle of incidence equals the solar zenith angle.
+
+Plane-of-array irradiance before cells:
+
+\begin{equation}
+  E_\mathrm{POA}
+    = \underbrace{E_\mathrm{DNI}\cos\zeta \cdot \mathrm{IAM}(\zeta)}_{\text{beam, with reflection}}
+    + \underbrace{0.95\, E_\mathrm{DHI}}_{\text{diffuse IAM \flag{}}}.
+\end{equation}
+
+Then encapsulation transmission 0.97 \flag{}:
+
+\begin{equation}
+  E_\mathrm{eff} = 0.97\, E_\mathrm{POA}.
+\end{equation}
+
+IAM is pvlib's physical air/glass model. A horizontal wing at El Mirage ($34.65^\circ\mathrm{N}$) never sees the sun overhead except near noon in June, and even then $\zeta \ne 0$ most of the day. That cosine is the main reason ``battery night'' is longer than civil night.
+
+\subsection{Cell temperature}
+
+No flight-cooling credit. NOCT-style
+
+\begin{equation}
+  T_\mathrm{cell} = T_\mathrm{amb} + k\, E_\mathrm{eff},
+\end{equation}
+
+with $k$ calibrated so solstice-noon static $T_\mathrm{cell} = 75^\circ\mathrm{C}$ (user requirement). Ambient is a sinusoid, min at 05:00, max at 15:30, between 24 and $40^\circ\mathrm{C}$.
+
+\subsection{Electrical output}
+
+C60 bin I \flag{}: $P_\mathrm{mp} = 3.40\,\mathrm{W}$ at STC. Temperature coefficient $\gamma = -0.32\%/^\circ\mathrm{C}$. Wiring / mismatch / soiling 0.965 \flag{}. MPPT 0.95.
+
+\begin{equation}
+  P_\mathrm{bus}
+    = N_\mathrm{cells}\, P_\mathrm{mp}
+      \frac{E_\mathrm{eff}}{1000}
+      \bigl[1 + \gamma (T_\mathrm{cell}-25)\bigr]
+      \times 0.965 \times 0.95.
+\end{equation}
+
+\subsection{Why 26 cells is a hard wall}
+
+Boost MPPT: string $V_\mathrm{oc}$ must stay below the depleted 6S bus (19.2\,V) so the converter can always boost. Cold cells ($10^\circ\mathrm{C}$) have the highest Voc. Bin I: $V_\mathrm{oc}(10^\circ\mathrm{C}) \approx 0.713\,\mathrm{V}$, so
+
+\begin{equation}
+  N_{\max} = \left\lfloor \frac{19.2}{0.713} \right\rfloor = 26.
+\end{equation}
+
+A rectangular 6.0$\times$0.36\,m outboard wants more than 26 cells in a single series string. Under one-string-per-bay that planform is illegal unless you add strings (extra MPPTs, extra mass) or taper so the tip drops cells.
+
+\begin{examplebox}
+\textbf{Example --- extra cells lost.} A mixed-pack rectangular wing with 92--104 cells and extra strings was tried (``just put more solar on''). AR fell to $\sim$16.7, mass rose $\sim$1.4\,kg, night watts rose, and margin got \emph{worse} (about $-184\,\mathrm{Wh}$ vs.\ $-160\,\mathrm{Wh}$ on the tapered 82-cell wing, at the old 410\,g/m booms). Noon already spills. The night does not care that you had 20 more cells at 13:00. It cares that you are heavier and draggier at 02:00.
+\end{examplebox}
+
+% =====================================================================
+\section{Battery}
+% =====================================================================
+
+File: \code{solar\_uav/components/battery.py}.
+
+Two GOLD V1 packs in parallel: 483\,Wh, 23.68\,Ah, 1.278\,kg, 6\,A charge, 313\,W sustained discharge each. Usable energy at the 20\% floor:
+
+\begin{equation}
+  E_\mathrm{usable} = 2 \times 483 \times 0.80 = 773\,\mathrm{Wh}.
+\end{equation}
+
+SOC is energy-based. Open-circuit voltage is a generic Si-anode Li-ion curve \flag{}, 3.0--4.2\,V/cell, times 6. Internal resistance $45\,\mathrm{m}\Omega$ per pack \flag{}, paralleled.
+
+Terminal power during discharge: $P = V_\mathrm{oc} I - I^2 R$. Chemistry energy removed is $V_\mathrm{oc} I \Delta t$ (you pay $I^2R$ from the bus but it does not come out of SOC as extra capacity --- it is a conversion loss). Charge is the reverse, capped at 6\,A/pack, with a CV taper as $V_\mathrm{oc}$ approaches 25.2\,V.
+
+The march \emph{allows} SOC to fall through 20\% so we can measure how far a miss is. Closure still requires staying above 20\%.
+
+% =====================================================================
+\section{The 24-hour energy march}
+% =====================================================================
+
+File: \code{solar\_uav/mission.py}. Default step: 5 minutes.
+
+Night and day bus loads are each a single number: propulsion at that density's min-power speed, plus 5\,W avionics. Then, at every timestep,
+
+\begin{align}
+  \text{is\_night} &= (P_\mathrm{solar} < P_\mathrm{night}), \\
+  P_\mathrm{load} &= \begin{cases}
+      P_\mathrm{night} & \text{if night}, \\
+      P_\mathrm{day} & \text{if day},
+    \end{cases} \\
+  P_\mathrm{net} &= P_\mathrm{solar} - P_\mathrm{load}.
+\end{align}
+
+\begin{warningbox}
+\textbf{Do not mentally replace $P_\mathrm{net}$ with $-P_\mathrm{night}$ at dusk.} If the array is making 60\,W and the load is 75\,W, the pack only supplies 15\,W. Calling that ``night'' and draining 75\,W is how people convince themselves the physics is worse than it is --- and then over-correct with a third pack. The code already counts the shoulders.
+\end{warningbox}
+
+The march starts at the \textbf{last afternoon timestep} where $P_\mathrm{net} > 1\,\mathrm{W}$, with SOC $= 1$, then wraps 24 hours. That way the night is fully counted and we test refill on the following afternoon.
+
+\textbf{Battery-true night} is hours with $P_\mathrm{solar} < P_\mathrm{night}$. On 21 June at El Mirage ($34.65^\circ\mathrm{N}$) that is \textbf{14.0 hours} on the current airplane, not the $\sim$9.5 hours of civil night. A horizontal wing at this latitude simply does not make cruise power at low sun.
+
+\begin{examplebox}
+\textbf{Example --- why ``75\,W $\times$ 14\,h = 1050\,Wh, we need another pack'' is the wrong arithmetic.}
+Usable pack is 773\,Wh. Shoulders (dawn/dusk when the array makes some but not all of cruise) contribute on the order of 100+\,Wh that a naive $P\times t$ ignores. The honest integral is still larger than 773\,Wh --- that is why we miss --- but the scored gap is $158\,\mathrm{Wh}$ below the 20\% floor (and a separate $90\,\mathrm{Wh}$ refill miss), not 300\,Wh. Closing is ``about 11\,W off the night bus'' or ``a bit more pack,'' not ``the polar must be twice as good.''
+\end{examplebox}
+
+% =====================================================================
+\section{Propulsion}
+\label{sec:propulsion}
+% =====================================================================
+
+Files: \code{solar\_uav/components/propeller.py}, \code{mejzlik.py}, \code{motor.py}, \code{propulsion.py}.
+
+Two motors, two props, thrust split equally. 6S bus, nominal 22.2\,V, climb uses 25.2\,V.
+
+\subsection{Propeller maps}
+
+APC PER3 files (vortex theory) and Mejzlik 2-blade electric maps (in-house BEM / vortex). Both are \textbf{computational, not measured}. Uncertainty factors, applied in \code{PropulsionSystem} (not inside a \code{nominal=True} table read):
+
+\begin{equation}
+  T_\mathrm{used} = 0.92\, T_\mathrm{map}, \qquad
+  P_\mathrm{used} = 1.08\, P_\mathrm{map}
+  \quad \text{\flag{}}.
+\end{equation}
+
+Level flight asks the map for $T_\mathrm{need}/0.92$ so the derated thrust still equals drag.
+
+Nondimensional definitions (McCormick / MIT 16.unified):
+
+\begin{equation}
+  J = \frac{V}{n D}, \qquad
+  T = C_T(J)\, \rho n^2 D^4, \qquad
+  P = C_P(J)\, \rho n^3 D^5, \qquad
+  \eta = \frac{J C_T}{C_P}.
+\end{equation}
+
+$n$ is rev/s, $D$ is diameter in metres. $C_T$ and $C_P$ come from the published map. Density scaling of a tabulated $T,P$ is $\rho/\rho_\mathrm{ref}$ with $\rho_\mathrm{ref} = 1.225\,\mathrm{kg/m^3}$ for APC.
+
+\textbf{Query rule, in order:}
+
+\begin{enumerate}
+  \item If this airspeed exists on an RPM block of the table, interpolate $T(\mathrm{RPM})$ at that speed, density-scale, and pick the RPM that makes the required thrust. \emph{If the slowest tabulated RPM that covers this speed already makes enough thrust, stop. Do not slow down further.}
+  \item Otherwise fall back to $C_T(J)$ similarity, but only for $J < J_\mathrm{windmill}$ (the advance ratio where $C_T$ crosses zero). Past windmill the blade is a drag device; there is no cruise solution there.
+  \item If table and similarity disagree by more than 15\% (\code{PROP\_SANITY\_REL}), raise a \flag{} on the result. The mission still uses the table value when the table was the source.
+\end{enumerate}
+
+\begin{warningbox}
+\textbf{The $n^2$-scaling bug, as a worked example.}
+At fixed $V$, a naive ``I only need a tiny thrust, scale RPM with $\sqrt{T}$'' walks $J = V/(nD)$ \emph{up}. For the APC $22\times12$E, zero-thrust is near $J \approx 0.67$. Night cruise at 10.7\,m/s wants $n \approx 2070$\,RPM ($J \approx 0.58$) on the table. Scaling down to 1190\,RPM puts $J \approx 1.14$, past windmill. Similarity then says $T=0$. The interpolator had been reporting a few newtons and $\sim$62\,W anyway. That is how a closed design appeared out of nothing. The rule ``never $n^2$-scale RPM down at fixed speed once a covering block exists'' exists so this cannot happen again.
+\end{warningbox}
+
+\begin{intuition}
+\textbf{Intuition for $J$.} $J$ is ``how much air is rushing at the prop compared to how fast the blades are spinning.'' Small $J$: hovering / climb, blades see mostly rotation, lots of thrust, lots of power. Large $J$: the airplane has run out in front of the blades; they start to windmill. A high-pitch ``cruise prop'' reaches windmill later (larger $J$), which is why we shortlist pitch ratios $0.40$--$0.85$. Even then, a 21$\times$14 at 10.5\,m/s and 1545\,RPM is at $J \approx 0.76$, and Mejzlik similarity says $C_T \approx 0$ while the table still lists $\sim$1.8\,N per blade --- that is why older nearest-misses on MJ-21$\times$14EL were on the optimistic side of the table. The current airplane flies an APC $16\times12$E at 11.42\,m/s and 2365\,RPM; the FLAG there is shaft power, table $28.0\,\mathrm{W}$ vs.\ similarity $22.8\,\mathrm{W}$ (19\%). Night watts use the table. The FLAG is in the CSV for a reason.
+\end{intuition}
+
+\subsection{Motor and ESC}
+
+First-order DC motor. Datasheet $K_v$, $R_i$, $I_0$ at 8.4\,V. Torque constant $K_t = 1 / K_{v,\mathrm{rad}}$. Gearbox (if any) ratio $g$, efficiency 0.96 \flag{}. Direct drive pays no gearbox loss.
+
+Given propeller torque $Q_p$ and RPM $n_p$:
+
+\begin{align}
+  Q_m &= \frac{Q_p}{g\,\eta_\mathrm{gear}}, \qquad
+  n_m = n_p\, g, \\
+  I &= \frac{Q_m}{K_t} + I_0, \\
+  V &= I R_i + \frac{n_m}{K_v}, \\
+  P_\mathrm{bus,1} &= \frac{V I}{\eta_\mathrm{ESC}}.
+\end{align}
+
+$I_0$ is still paid when loaded --- it is iron + friction, not ``only at idle.'' Two motors: $P_\mathrm{bus} = 2 P_\mathrm{bus,1}$. A point with $V > 22.2\,\mathrm{V}$ is infeasible at cruise (climb is allowed to 25.2\,V).
+
+$\eta_\mathrm{ESC} = 0.95$ \flag{}. The code does \emph{not} currently inflate that loss when duty is below 50\%, but \code{ESC\_DUTY\_MIN = 0.50} exists as a documented warning. On the current 12L + $16\times12$E at night, $V \approx 6.0\,\mathrm{V}$ at 2365\,RPM, i.e.\ duty $\sim$27\% on a 22.2\,V pack. \textbf{Real ESC efficiency at that duty is worse than 95\%.} Treating 0.95 here is an optimistic FLAG on night bus. A rewind to $K_v \approx 180$--$220$ would put duty at or above 50\%; at fixed $(Q,\mathrm{RPM})$ the 12L rewind model says cruise bus watts are nearly independent of $K_v$, so the catalog kv410 is not a modelled watt win.
+
+\begin{intuition}
+\textbf{Intuition for $I = Q/K_t + I_0$.} $Q/K_t$ is the current that actually makes torque. $I_0$ is the current the motor drinks just to spin itself --- hysteresis, windage, bearings. At climb, $Q/K_t$ dwarfs $I_0$ and you barely notice. At night cruise the torque is tiny, so $I_0$ is a large fraction of the bill. That is why a high-$I_0$ motor can look fine on a power-limit datasheet and still lose the night.
+\end{intuition}
+
+\subsection{Free-$K_v$ rewind model}
+
+Not a catalog part. Same A40-12L stator, $R_i \propto 1/K_v^2$, $I_0 \propto K_v$. Used to decide what $K_v$ to shop for. At fixed $(Q, n)$, cruise bus power is nearly independent of $K_v$ once you are voltage-feasible --- winding changes trade voltage for current. The 12L wins against the geared 10L because of \textbf{$I_0$ and gearbox loss}, not because 410\,rpm/V is magic.
+
+\subsection{Motors evaluated}
+\label{sec:motors}
+
+Catalog in \code{MOTOR\_CATALOG}:
+
+\begin{center}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+Name & $K_v$ & $R_i$ [$\Omega$] & $I_0$ [A] & $g$ & Mass [kg] & $P_\max$ [W] \\
+\midrule
+A40-10L V2 kv1100 + 6.7:1 PG & 1100 & 0.019 & 1.70 @ 8.4\,V & 6.7 & 0.315 & 2200 \\
+A40-10S V4G kv1600 + 6.7:1 PG & 1600 & 0.012 & 2.75 @ 8.4\,V & 6.7 & 0.247 & 1500 \\
+A40-12L V4 kv410 direct & 410 & 0.039 & 1.04 @ 8.4\,V & 1.0 & 0.275 & 1100 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Plus the rewind grid $K_v = 180, 200, \ldots, 900$ on the 12L stator (direct drive).
+
+\begin{examplebox}
+\textbf{Example --- why 12L beat 10L.}
+The 10L is the Hacker ``gliders to 14\,kg, props to 23\,in'' recommendation. It is \emph{not} the search default. At night the prop wants $\sim$1500--2000\,RPM and a few tenths of a newton-metre. After the 6.7:1 gearbox the \emph{motor} is spinning at 10--13\,kRPM and still paying $I_0 = 1.7\,\mathrm{A}$ plus 4\% gearbox. The 12L's $I_0 = 1.04\,\mathrm{A}$ is at the shaft RPM you actually want, with no gearbox. Climb on the 12L + $16\times12$E is still $\sim$15\,m/s. The 10S is worse still ($I_0 = 2.75\,\mathrm{A}$). \textbf{Mindset: size the motor for night $I_0$ and map bite, not for takeoff marketing.}
+\end{examplebox}
+
+\subsection{Propellers evaluated}
+\label{sec:props}
+
+Shortlist rule (\code{shortlist\_props}):
+
+\begin{itemize}
+  \item APC style containing ``E'' (electric), excluding MR, SF, W, N, F2B, 3-blade, 4-blade.
+  \item Mejzlik 2-blade electrics (style contains E).
+  \item Diameter $\ge 16\,\mathrm{in}$ (no upper cap; climb + cruise decide).
+  \item Pitch / diameter $\in [0.40, 0.85]$.
+\end{itemize}
+
+That is \textbf{51} maps. Full list in Appendix~\ref{app:props}.
+
+Neighborhood searches used a 7-prop subset that had already survived earlier ranks:
+
+\begin{center}
+\texttt{MJ-21x14EL}, \texttt{16x12E}, \texttt{17x12E}, \texttt{18x12E},
+\texttt{19x12E}, \texttt{20x13E}, \texttt{21x13E}.
+\end{center}
+
+The inner loop currently picks \texttt{16x12E} on the 12L nearest-miss. Larger tabulated diameters cost night watts on-map; similarity-filled points (e.g.\ a $20\times15$E off the table) are excluded. Mejzlik 21-inch fans still appear in the shortlist and in older CSVs, but they are not the current pick.
+
+APC thin-electric mass (when not in a catalog) is the fit $m = 0.263\times 10^{-3}\, D_\mathrm{in}^{1.96}$ \flag{}.
+
+% =====================================================================
+\section{Current nearest-miss (does not close)}
+% =====================================================================
+
+From \code{outputs/phase4\_candidates.csv} (812 scored, 0 closed), best row of the 17 August 2026 search after independent tails, $0.8\times$ wing areal mass, and 1\,in / $0.174\,\mathrm{kg/m}$ booms. Those numbers are also \code{REF\_*} in \code{config.py} for the visualizer. Washout chose $\approx 0^\circ$.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Item & Value \\
+\midrule
+Motor & A40-12L V4 kv410 direct \\
+Prop & APC $16\times12$E \\
+Wing & $5.907\times 0.314\,\mathrm{m}$, $\lambda=0.598$ from 0.275 of the outboard \\
+Area / AR / $e$ & $1.636\,\mathrm{m^2}$, 21.3, 0.98 (cap) \\
+H-stab / V-stab arm & $1.278\,\mathrm{m}$ / $1.696\,\mathrm{m}$ (V LE $0.19\,\mathrm{m}$ behind H TE) \\
+Boom spacing / elevator & $1.133\,\mathrm{m}$ / 34\% chord \\
+$V_H$ actual / $V_V$ & $0.687$ (packing chord floor) / $0.030$ \\
+H-stab height / downwash $k$ & $z_H=0$ (wing plane) / $k_\varepsilon=1.21$ (VLM $>$ handbook) \\
+Static margin & 43\% MAC \\
+Array & 76 cells, strings $26+26+16+8$ (4 MPPTs) \\
+Mass & $8.745\,\mathrm{kg}$ (booms $1.868\,\mathrm{m}$, $\varnothing 25.4\,\mathrm{mm}$) \\
+Night / day bus & $75.2\,\mathrm{W}$ / $76.5\,\mathrm{W}$ (includes 5\,W avionics) \\
+$V_\mathrm{stall}$ / $V_\mathrm{night}$ & $8.78$ / $11.42\,\mathrm{m/s}$ ($1.3 V_s$ binds) \\
+Climb & $14.8\,\mathrm{m/s}$ (requirement 1.5) \\
+Battery-true night & 14.0\,h \\
+$\mathrm{SOC}_\mathrm{min}$ / $\mathrm{SOC}_\mathrm{end}$ & 0.036 / 0.887 \\
+Margin & $\mathbf{-158\,\mathrm{Wh}}$ \\
+Closed? & No \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Mass lumps (kg): batteries 2.56, wing 2.25, fixed 1.20, booms 0.65, solar 0.61, motors 0.55, MPPTs 0.43, H-stab 0.22, V-stabs 0.15, props 0.12.
+
+The same search family is lighter than the old 1.5\,in / $0.290\,\mathrm{kg/m}$ $\pi$-tail nearest-miss ($\sim$9.8\,kg, $-112\,\mathrm{Wh}$ at a slower $V_\mathrm{night}$). Independent $\ell_v$, thinner booms, and the $0.8\times$ wing cut mass, but El Mirage density plus the $1.3 V_s$ floor put night bus back at 75\,W and the SOC floor at 0.036. Still about 11\,W of night bus short of the 20\% floor, before you even discount the prop-map and ESC-duty FLAGs.
+
+Prop FLAG on this row: at 2365\,RPM, 11.42\,m/s, table shaft $28.0\,\mathrm{W}$ vs.\ similarity $22.8\,\mathrm{W}$ (19\%). Night watts use the table. ESC duty is $\sim$27\%; the 95\% ESC efficiency is optimistic.
+
+% =====================================================================
+\section{Top learnings: design priority and mindset}
+% =====================================================================
+
+These are not slogans. They are what the model has already spent compute to tell us.
+
+\subsection{Night is the only constraint that is close}
+
+Day array $\sim$200\,W vs.\ $\sim$75\,W cruise. Climb is an order of magnitude above requirement. MTOW has $\sim$3\,kg of unused budget on the nearest-miss. Span is at the wall. The SOC floor is what fails (refill also misses). \textbf{Every other subsystem is a servant of night bus watts and night duration.}
+
+\subsection{Mass and induced drag beat parasite tricks}
+
+Equation~\eqref{eq:cdi} with $C_L \propto W/S$ means
+
+\begin{equation}
+  D_i \propto \frac{W^2}{\rho V^2 b^2 e}.
+\end{equation}
+
+Span is maxed. $e$ is capped. At \emph{fixed} mass the remaining polar lever is the $1.3 V_s$ speed floor (true aero min-power is $\sim$9.2\,m/s). If mass is still free, a kilogram of boom is not ``structure we can live with''; it is $C_L$ we fly for 14 hours. Fairings, trip dots, and boom $\varnothing$ are a few percent of drag. Do not spend the team's year there until night bus is honest and the structure is light.
+
+\subsection{The propeller map bite is bigger than the polar}
+
+Aero power is 36\,W. Bus is 75\,W. The missing $\sim$39\,W is prop efficiency at cruise $J$, $I_0$, the 95\% ESC at 27\% duty, and the derate/inflate factors. Chasing 2\% on S4310 $c_d$ saves tenths of a watt of aero. Putting the blade on a tabulated point with real $C_T$, or accepting that a fan is past windmill and picking another, moves tens of watts. The current $16\times12$E is already the best \emph{on-map} fan in the shortlist.
+
+\subsection{Do not invent operating points}
+
+If the map does not list a gentle cruise RPM at that speed, the airplane cannot have that cruise. Similarity past $J_\mathrm{windmill}$ is not a loiter mode. This is the single most expensive lesson in the repo.
+
+\subsection{Taper first, cells second, washout last}
+
+Taper $\lambda\approx 0.60$ from 0.28 of the outboard: fewer tip cells than a rectangle, AR 21.3, $e$ at the cap, Voc-legal strings. Older searches that dropped taper to glue more cells on the outboard made the night worse. Washout on the current wing is $\approx 0^\circ$. \textbf{Do not undo a planform that already matches the ellipse in order to print more silicon that spills at noon.}
+
+\subsection{Motors: night $I_0$, not takeoff watts}
+
+The 10L is the brochure motor. The 12L is the night motor. Climb still clears 1.5\,m/s by a huge margin ($\sim$15\,m/s on the $16\times12$E). Catalog kv410 is 27\% ESC duty; a rewind to $\sim$200\,rpm/V would make the 95\% ESC assumption honest without changing cruise watts in the rewind model. If a future motor has lower $I_0$ at 2000--2400\,RPM on 6S, that is worth more than another 100\,W of burst rating.
+
+\subsection{Closing moves that actually scale}
+
+Roughly 11\,W off night bus, or a third pack (currently forbidden), or array that produces cruise power at lower sun (camber / incidence of the cells, not more noon area). At fixed mass, raising $C_{L,\max}$ (or relaxing $1.3\to 1.2$) is the polar move that actually changes the speed you fly. T-tail downwash credits, $\pi$-tail endplate credits, and flight cooling of the cells are not those moves --- and they are conservative-physics violations if taken as free gains.
+
+\subsection{Mindset}
+
+\begin{itemize}
+  \item Prefer an honest fail over an optimistic close.
+  \item When two models disagree, take the worse number and write a FLAG, do not average them toward closure.
+  \item Unused MTOW is not a license to add mass ``because we can.'' Mass is night watts.
+  \item Unused climb is not a license to pick a thirstier motor ``because we have thrust.''
+  \item Noon solar that spills is not endurance. Morning solar that covers cruise earlier \emph{is}.
+\end{itemize}
+
+% =====================================================================
+\section{What this model does not do}
+% =====================================================================
+
+New members should not assume the following are in the physics:
+
+\begin{itemize}
+  \item 3D CFD, vortex-lattice of the full airplane, or measured glide polars (Phase 6 is the hook for those).
+  \item Ground effect, banked turns, gusts, or a control-law simulation.
+  \item Propeller--wing interference, swirl recovery, or blade-element theory we wrote ourselves.
+  \item Measured ESC efficiency vs.\ duty; measured pack DCIR; measured cell temperature in flight.
+  \item Structural sizing (spars are inside the areal density, not a beam model). No aeroelasticity.
+  \item Weather other than clear-sky Ineichen. No clouds, no albedo from water, no horizon masking.
+  \item Takeoff roll, landing, or a 89-hour trace with degrading packs --- only a repeating 24\,h day with a refill constraint.
+  \item Payload, retracts, or a third pack (locked out).
+\end{itemize}
+
+Phase 5 (\code{monte\_carlo.py}) samples irradiance, cell temperature, array efficiency, mass growth, drag, prop factors, avionics, and pack energy, and reports $P(\mathrm{closure})$ and a tornado. It does not invent new physics; it shakes the FLAGGED knobs. Phase 6 is bench/flight protocols to replace those knobs with measurements.
+
+% =====================================================================
+\section{FLAGGED assumptions (complete working list)}
+% =====================================================================
+
+Grep \texttt{FLAGGED} in \code{solar\_uav/config.py} and the component modules. The important ones, with the conservative direction:
+
+\begin{center}
+\begin{tabular}{@{}p{0.42\textwidth}p{0.50\textwidth}@{}}
+\toprule
+Assumption & Conservative direction \\
+\midrule
+Longitude $-117.606^\circ$ (El Mirage) & $\pm 0.5^\circ$ is $\sim$2 min of solar clock; not a closure driver \\
+Field elevation $865\,\mathrm{m}$ + 400\,ft AGL & already thin; sea-level density would be kind \\
+Stall margin 1.2 / loiter $1.3 V_s$ and 1.5\,m/s climb & operational, not physics; $1.3 V_s$ binds night watts \\
+C60 bin I & worse bins make less power \\
+Cell / interconnect mass 6.5 + 1.5\,g & heavier cells hurt \\
+Encapsulation 0.97, wiring 0.965, IAM diffuse 0.95 & less array \\
+Cold cells $10^\circ\mathrm{C}$ for Voc & fewer cells/string (already 26) \\
+String $V_\mathrm{mp}$ margin 0.95 vs.\ 19.2\,V & packing, not watts \\
+Pack $R_i = 45\,\mathrm{m}\Omega$, generic OCV & more $I^2R$, slightly worse SOC accounting \\
+Gearbox 0.96, ESC 0.95, ESC duty 50\% & 0.95 at 27\% duty (kv410 + $16\times12$E) is \emph{optimistic} --- noted \\
+Prop $T\times 0.92$, $P\times 1.08$ & unkind to maps; table-vs-similarity FLAG can still be kind \\
+Wing areal $0.84\times 0.8$\,kg/m$^2$ wetted, no spar-span scaling & user build number; may still be kind on a 6\,m spar \\
+Boom $0.174\,\mathrm{kg/m}$, $\varnothing 25.4\,\mathrm{mm}$ & user build number; parasite uses the OD \\
+Pod wetted from CAD, $C_f$ fully turbulent & extra parasite \\
+$e_0 = 0.90$ rectangle, cap 0.98 & cap prevents taper from claiming $e=1$ \\
+Downwash $2C_L/(\pi\mathrm{AR})$, no T-tail credit; $z_H=0$ & extra tail download; VLM $k=1.21$ is used (worse) \\
+$C_{L,\max}$ 0.90 of 2D & higher $V_s$, higher $V_{\min}$ \\
+CG at $c/4$, SM target 0.12 / min 0.08 & CG-aft would help trim; we do not take it \\
+Elevator $\tau=\sqrt{c_e/c}$ & control check, not polar \\
+$V_H=0.50$ (actual 0.69 from packing), $V_V=0.030$, no fin-area floor, $\mathrm{AR}_V=1.5$ & geometry / mass / yaw; no $\pi$-endplate credit \\
+$T_\mathrm{amb}$ 24--40\,$^\circ\mathrm{C}$, static 75\,$^\circ\mathrm{C}$ cells & hot, no flight cooling \\
+Ineichen $\pm 3\%$ 1-sigma & Phase 5 samples this \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+If you cannot tell which way an effect goes, pick the way that makes night bus higher or SOC worse, and say so in a FLAG. Do not silently undo a conservative factor to help a candidate close.
+
+% =====================================================================
+\section{Code map}
+% =====================================================================
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+File & Role \\
+\midrule
+\code{solar\_uav/config.py} & locked constants, grids, FLAGGED notes \\
+\code{solar\_uav/environment.py} & pvlib sun, IAM, design-day $T$, NOCT cells \\
+\code{solar\_uav/asb\_physics.py} & VLM / LL / AeroBuildup / mesh inertia / XFoil envelope \\
+\code{solar\_uav/aircraft.py} & geometry (independent $\ell_t$, $\ell_v$), mass, polar, trim, stall, SM, roll/yaw \\
+\code{solar\_uav/lifting\_line.py} & Fourier LL, used only if washout $>0$ \\
+\code{solar\_uav/mission.py} & 24\,h march, margin, closure \\
+\code{solar\_uav/optimize.py} & continuous DE (includes $\ell_v$), legacy grid, inner prop loop \\
+\code{solar\_uav/optimize\_kv.py} & free-$K_v$ rewind $\times$ tabulated prop at fixed airframe \\
+\code{solar\_uav/cad.py} / \code{cad\_server.py} & OpenSCAD + Three.js viewer on port 8099 \\
+\code{solar\_uav/components/airfoils.py} & NeuralFoil polars \\
+\code{solar\_uav/components/solar\_array.py} & C60, Voc cap, bay packing \\
+\code{solar\_uav/components/battery.py} & GOLD V1 SOC, 6\,A charge, $I^2R$ \\
+\code{solar\_uav/components/propeller.py} & APC maps, similarity, no $n^2$-down \\
+\code{solar\_uav/components/mejzlik.py} & Mejzlik maps \\
+\code{solar\_uav/components/motor.py} & $K_v, R_i, I_0$, rewind model \\
+\code{solar\_uav/components/propulsion.py} & matching, shortlist, climb thrust \\
+\code{solar\_uav/monte\_carlo.py} & Phase 5 uncertainty \\
+\code{solar\_uav/validation.py} & Phase 6 bench hooks \\
+\code{.cursor/rules/conservative-physics.mdc} & the physics rule agents must follow \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{verbatim}
+.venv/bin/python scripts/validate_all.py    # Phases 1-2
+.venv/bin/python scripts/eval_stability.py  # aileron / fin / loiter checks
+.venv/bin/python scripts/run_asb_audit.py   # AeroSandbox vs handbook envelope
+.venv/bin/python scripts/run_phase34.py     # Phases 3-4 + optimizer
+.venv/bin/python scripts/run_phase56.py     # Phases 5-6 + CAD
+.venv/bin/python scripts/visualize.py       # CAD / HTML viewer (http://127.0.0.1:8099/)
+.venv/bin/python -m solar_uav.cad_server    # viewer only, if CAD already exported
+\end{verbatim}
+
+Constants that describe the current nearest-miss for the visualizer live at the bottom of \code{config.py} as \code{REF\_*}. Changing those does not re-run the search; it only changes what the CAD and Phase 5 treat as ``the airplane.''
+
+% =====================================================================
+\appendix
+\section{Full propeller shortlist}
+\label{app:props}
+% =====================================================================
+
+Electric 2-blade APC + Mejzlik maps that pass diameter $\ge 16\,\mathrm{in}$ and pitch ratio $0.40$--$0.85$ as of this writing ($N=51$).
+
+\begin{center}
+\begin{longtable}{@{}llrr@{}}
+\toprule
+Manufacturer & Name & Diameter [in] & Pitch [in] \\
+\midrule
+\endfirsthead
+\toprule
+Manufacturer & Name & Diameter [in] & Pitch [in] \\
+\midrule
+\endhead
+APC & 16x7E(3D) & 16.0 & 7.0 \\
+APC & 16x8E & 16.0 & 8.0 \\
+APC & 16x10E & 16.0 & 10.0 \\
+APC & 16x12E & 16.0 & 12.0 \\
+APC & 17x7E & 17.0 & 7.0 \\
+APC & 17x8E & 17.0 & 8.0 \\
+APC & 17x10E & 17.0 & 10.0 \\
+APC & 17x12E & 17.0 & 12.0 \\
+APC & 18x8E & 18.0 & 8.0 \\
+APC & 18x10E & 18.0 & 10.0 \\
+APC & 18x12E & 18.0 & 12.0 \\
+APC & 19x8E & 19.0 & 8.0 \\
+APC & 19x10E & 19.0 & 10.0 \\
+APC & 19x12E & 19.0 & 12.0 \\
+APC & 20x8E & 20.0 & 8.0 \\
+APC & 20x10E & 20.0 & 10.0 \\
+APC & 20x11E & 20.0 & 11.0 \\
+APC & 20x13E & 20.0 & 13.0 \\
+APC & 20x15E & 20.0 & 15.0 \\
+APC & 205x14E & 20.5 & 14.0 \\
+APC & 21x13E & 21.0 & 13.0 \\
+APC & 22x10E & 22.0 & 10.0 \\
+APC & 22x12E & 22.0 & 12.0 \\
+APC & 24x12E & 24.0 & 12.0 \\
+APC & 25x125E & 25.0 & 12.5 \\
+APC & 26x13E & 26.0 & 13.0 \\
+APC & 26x15E & 26.0 & 15.0 \\
+APC & 27x13E & 27.0 & 13.0 \\
+Mejzlik & MJ-18x8E & 18.0 & 8.0 \\
+Mejzlik & MJ-18x8EL & 18.0 & 8.0 \\
+Mejzlik & MJ-18x10E & 18.0 & 10.0 \\
+Mejzlik & MJ-20x8E & 20.0 & 8.0 \\
+Mejzlik & MJ-20x8EL & 20.0 & 8.0 \\
+Mejzlik & MJ-20x10E & 20.0 & 10.0 \\
+Mejzlik & MJ-20x10EL & 20.0 & 10.0 \\
+Mejzlik & MJ-20x11E & 20.0 & 11.0 \\
+Mejzlik & MJ-20x11EW & 20.0 & 11.0 \\
+Mejzlik & MJ-20x11EWL & 20.0 & 11.0 \\
+Mejzlik & MJ-20x13E & 20.0 & 13.0 \\
+Mejzlik & MJ-20x13EL & 20.0 & 13.0 \\
+Mejzlik & MJ-20p5x12EW & 20.5 & 12.0 \\
+Mejzlik & MJ-20p5x12ELW & 20.5 & 12.0 \\
+Mejzlik & MJ-21x10EL & 21.0 & 10.0 \\
+Mejzlik & MJ-21x13E & 21.0 & 13.0 \\
+Mejzlik & MJ-21x13EL & 21.0 & 13.0 \\
+Mejzlik & MJ-21x13p5EL & 21.0 & 13.5 \\
+Mejzlik & MJ-21x14EL & 21.0 & 14.0 \\
+Mejzlik & MJ-22x12EW & 22.0 & 12.0 \\
+Mejzlik & MJ-24x10EL & 24.0 & 10.0 \\
+Mejzlik & MJ-26x15E & 26.0 & 15.0 \\
+Mejzlik & MJ-26x15EL & 26.0 & 15.0 \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\section{C60 bins (datasheet, unlaminated, STC)}
+
+\begin{center}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+Bin & $P_\mathrm{mp}$ [W] & $V_\mathrm{mp}$ & $I_\mathrm{mp}$ & $V_\mathrm{oc}$ & $I_\mathrm{sc}$ & $\eta$ \\
+\midrule
+G & 3.34 & 0.574 & 5.83 & 0.682 & 6.24 & 0.218 \\
+H & 3.38 & 0.577 & 5.87 & 0.684 & 6.26 & 0.221 \\
+I (default) & 3.40 & 0.581 & 5.90 & 0.686 & 6.27 & 0.223 \\
+J & 3.42 & 0.582 & 5.93 & 0.687 & 6.28 & 0.225 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{How to compile this note}
+
+The illustrated Overleaf pack (figures, charts, three-view) is \code{docs/overleaf/}: upload that folder, or the zip next to it, and compile \code{main.tex} with pdfLaTeX twice.
+
+\begin{verbatim}
+cd docs/overleaf
+pdflatex main.tex
+pdflatex main.tex
+\end{verbatim}
+
+Regenerate plots with \code{scripts/export\_overleaf\_figures.py}. Numbers are from the live model on 17 August 2026 (\code{reference\_design()} plus \code{outputs/phase4\_candidates.csv}).
+
+\end{document}

@@ -1,0 +1,4 @@
+# Encapsulated C60 string: measured DC power vs plane-of-array irradiance.
+# g_poa_w_m2 = pyranometer on the panel plane (raw, before encapsulation).
+# t_cell_c = thermocouple on the cell back. p_dc_w = MPPT-input (string DC).
+g_poa_w_m2,t_cell_c,p_dc_w

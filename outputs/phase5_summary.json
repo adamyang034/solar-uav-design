@@ -1,0 +1,14 @@
+{
+  "n": 256,
+  "p_closed": 0.0,
+  "p_closed_legal": 0.0,
+  "p_overweight": 0.2734375,
+  "p_soc_floor": 0.0,
+  "margin_p10_wh": -1082.9899010659856,
+  "margin_p50_wh": -798.4502679940633,
+  "margin_p90_wh": -479.10013121984656,
+  "soc_min_p10": 0.0,
+  "soc_min_p50": 0.0,
+  "mean_p_night_w": 129.5660835521154,
+  "mean_mass_kg": 11.675516780369552
+}
