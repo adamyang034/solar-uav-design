@@ -115,7 +115,7 @@ Design day & 21 June 2027 (solstice, longest day) \\
 Mission window & 1 May -- 31 July 2027 \\
 MTOW & $\le 12\,\mathrm{kg}$ \\
 Span & $\le 6\,\mathrm{m}$ \\
-Packs & exactly two (no third pack) \\
+Packs & at most three (integer; 2 or 3 searched) \\
 Avionics & $5\,\mathrm{W}$ continuous, day and night (measured) \\
 Climb & $\ge 1.5\,\mathrm{m/s}$ \flag{} \\
 Min airspeed & $\max(1.2\,V_\mathrm{stall},\; 15\,\mathrm{kt})$ \\
@@ -149,7 +149,7 @@ If a number is not measured and not in a datasheet range, the model implements t
 
 File: \code{solar\_uav/optimize.py}.
 
-It is a \textbf{mixed continuous / discrete search}. Aero geometry (span, chord, H-stab arm, V-stab arm, boom spacing, taper, washout, elevator fraction) is continuous and is driven by differential evolution (\code{search\_continuous()}). Integer and catalog quantities stay discrete: cell count from packing, pack count (locked at 2), motor (A40-12L direct), ESC (fixed mass), and the inner-loop propeller pick.
+It is a \textbf{mixed continuous / discrete search}. Aero geometry (span, chord, H-stab arm, V-stab arm, boom spacing, taper, washout, elevator fraction) is continuous and is driven by differential evolution (\code{search\_continuous()}). Integer and catalog quantities stay discrete: cell count from packing, pack count (2 or 3, cap 3), motor (A40-12L direct), ESC (fixed mass), and the inner-loop propeller pick.
 
 A legacy exhaustive grid (\code{search()}) remains for neighborhood dumps. Do not use it as the production path --- it is the slow nested loop that used to take tens of minutes.
 
@@ -275,7 +275,7 @@ V-stab AR & $1.5$--$3.5$, start $1.5$ & per fin; held at start \\
 Aileron chord frac & $0.20$--$0.30$, start $0.25$ & locked for S\&C sizing \\
 \midrule
 \multicolumn{3}{l}{\emph{Discrete / catalog}} \\
-Packs & $\{2\}$ & locked, integer \\
+Packs & $\{2,3\}$ & cap 3; one DE per pack count \\
 Motor & A40-12L kv410 direct & not searched \\
 ESC & fixed $0.060\,\mathrm{kg}$ lump & not searched \\
 $N_\mathrm{cells}$ & from packing & integer, Voc-capped strings \\

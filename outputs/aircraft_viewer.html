@@ -17,19 +17,19 @@
   #side { position: absolute; top: 16px; right: 16px; width: 280px; z-index: 5;
           max-height: calc(100% - 48px); overflow: auto; display: flex;
           flex-direction: column; gap: 10px; pointer-events: auto; }
-  #mass, #energy, #fixed { background: #25282e; border: 1px solid #3a3f46;
+  #mass, #energy, #fixed, #drag { background: #25282e; border: 1px solid #3a3f46;
          padding: 12px 14px; font-size: 12px; line-height: 1.4; }
-  #mass h1, #energy h1, #fixed h1 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
-  #mass .row, #energy .row, #fixed .row { display: grid; grid-template-columns: 92px 1fr 70px;
+  #mass h1, #energy h1, #fixed h1, #drag h1 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+  #mass .row, #energy .row, #fixed .row, #drag .row { display: grid; grid-template-columns: 100px 1fr 78px;
                gap: 6px; align-items: center; margin: 3px 0; }
-  #mass .row.sub, #energy .row.sub, #fixed .row.sub { padding-left: 8px; color: #9aa0a6; font-size: 11px; }
-  #mass .lab, #energy .lab, #fixed .lab { color: #c4c7cc; overflow: hidden; text-overflow: ellipsis; }
-  #mass .bar, #energy .bar, #fixed .bar { height: 8px; background: #1b1d21; border: 1px solid #3a3f46; }
-  #mass .bar > i, #energy .bar > i, #fixed .bar > i { display: block; height: 100%; background: #8ab4f8; }
+  #mass .row.sub, #energy .row.sub, #fixed .row.sub, #drag .row.sub { padding-left: 8px; color: #9aa0a6; font-size: 11px; }
+  #mass .lab, #energy .lab, #fixed .lab, #drag .lab { color: #c4c7cc; overflow: hidden; text-overflow: ellipsis; }
+  #mass .bar, #energy .bar, #fixed .bar, #drag .bar { height: 8px; background: #1b1d21; border: 1px solid #3a3f46; }
+  #mass .bar > i, #energy .bar > i, #fixed .bar > i, #drag .bar > i { display: block; height: 100%; background: #8ab4f8; }
   #mass .row.sub .bar > i, #fixed .bar > i { background: #5f7a9b; }
   #energy .bar > i.neg { background: #f28b82; }
   #energy .bar > i.pos { background: #81c995; }
-  #mass .kg, #energy .kg, #fixed .kg { text-align: right; color: #f1f3f4; font-variant-numeric: tabular-nums; }
+  #mass .kg, #energy .kg, #fixed .kg, #drag .kg { text-align: right; color: #f1f3f4; font-variant-numeric: tabular-nums; }
   #hint { position: absolute; bottom: 12px; right: 16px; color: #9aa0a6; font-size: 11px; z-index: 5; }
 </style>
 </head>
@@ -43,6 +43,10 @@
 <div id="energy">
   <h1 id="energy-title">Energy margin</h1>
   <div id="energy-rows"></div>
+</div>
+<div id="drag">
+  <h1 id="drag-title">Night drag</h1>
+  <div id="drag-rows"></div>
 </div>
 <div id="mass">
   <h1 id="mass-title">Mass</h1>
@@ -167,6 +171,30 @@ const DIMS = {
     "battery_night_h": 14.0,
     "v_night_ms": 11.415399057634653,
     "soc_floor": 0.2
+  },
+  "drag": {
+    "v_ms": 11.415399057634653,
+    "rho": 1.048309264234188,
+    "q_pa": 68.30329019571631,
+    "mass_kg": 8.74469674314533,
+    "cl_net": 0.7675052708471947,
+    "cl_wing": 0.784074386422112,
+    "cl_hstab": -0.10886804933615976,
+    "cd_wingref": 0.02829009543347221,
+    "ld": 27.129822614140057,
+    "drag_total_n": 3.160956174902155,
+    "power_aero_w": 36.0835761402025,
+    "re_wing": 184009.70087714633,
+    "parts_n": {
+      "wing_profile": 1.3752652972218364,
+      "wing_induced": 1.0459725238326367,
+      "hstab_profile": 0.19875242495801607,
+      "hstab_induced": 0.017778971147352916,
+      "vstab_profile": 0.1376509389369198,
+      "pods": 0.17076830537760979,
+      "booms": 0.1106502469472192,
+      "control_gaps": 0.10411746648056411
+    }
   }
 };
 const rows = [
@@ -205,6 +233,13 @@ if (DIMS.energy && DIMS.energy.margin_wh !== undefined) {
     ["Energy margin", sign + e.margin_wh.toFixed(0) + " Wh  " + (e.closed ? "CLOSED" : "OPEN")],
     ["SOC min / end", (100 * e.soc_min).toFixed(1) + "% / " + (100 * e.soc_end).toFixed(1) + "%"],
     ["Night bus", e.p_night_w.toFixed(1) + " W"],
+  );
+}
+if (DIMS.drag && DIMS.drag.drag_total_n !== undefined) {
+  const d = DIMS.drag;
+  rows.push(
+    ["Night D / L/D", d.drag_total_n.toFixed(2) + " N  /  " + d.ld.toFixed(1)],
+    ["Night DV", d.power_aero_w.toFixed(1) + " W"],
   );
 }
 document.getElementById("dims").innerHTML = rows.map(
@@ -290,6 +325,50 @@ document.getElementById("dims").innerHTML = rows.map(
   html += `<div class="row"><div class="lab">SOC min/end</div><div></div>`
     + `<div class="kg">${(100 * e.soc_min).toFixed(1)} / ${(100 * e.soc_end).toFixed(1)}%</div></div>`;
   document.getElementById("energy-rows").innerHTML = html;
+})();
+
+(function renderDrag() {
+  const d = DIMS.drag;
+  if (!d || d.drag_total_n === undefined) return;
+  const title = document.getElementById("drag-title");
+  title.textContent = "Night drag  " + d.drag_total_n.toFixed(2) + " N  L/D "
+    + d.ld.toFixed(1);
+  const parts = d.parts_n || {};
+  const order = [
+    ["wing_profile", "wing profile"],
+    ["wing_induced", "wing induced"],
+    ["hstab_profile", "H-stab profile"],
+    ["hstab_induced", "H-stab induced"],
+    ["vstab_profile", "V-stab"],
+    ["pods", "pods"],
+    ["booms", "booms"],
+    ["control_gaps", "gaps"],
+  ];
+  const total = d.drag_total_n || 1;
+  const max = Math.max(...Object.values(parts), 1e-9);
+  const row = (lab, v) => {
+    const pct = 100 * v / total;
+    const w = 100 * v / max;
+    return `<div class="row">
+      <div class="lab">${lab}</div>
+      <div class="bar"><i style="width:${w.toFixed(1)}%"></i></div>
+      <div class="kg">${v.toFixed(2)} N  ${pct.toFixed(0)}%</div>
+    </div>`;
+  };
+  const kv = (lab, val) => `<div class="row"><div class="lab">${lab}</div><div></div>`
+    + `<div class="kg">${val}</div></div>`;
+  let html = "";
+  for (const [k, lab] of order) {
+    if (parts[k] !== undefined) html += row(lab, parts[k]);
+  }
+  html += kv("V night", d.v_ms.toFixed(2) + " m/s");
+  html += kv("q", d.q_pa.toFixed(1) + " Pa");
+  html += kv("CL net / wing", d.cl_net.toFixed(3) + " / " + d.cl_wing.toFixed(3));
+  html += kv("CL H-stab", d.cl_hstab.toFixed(3));
+  html += kv("CD on S", d.cd_wingref.toFixed(4));
+  html += kv("DV", d.power_aero_w.toFixed(1) + " W");
+  html += kv("Re MAC", (d.re_wing / 1e5).toFixed(2) + "e5");
+  document.getElementById("drag-rows").innerHTML = html;
 })();
 </script>
 <script type="module">

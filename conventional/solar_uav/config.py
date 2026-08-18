@@ -129,7 +129,12 @@ MOTOR_CATALOG = {
 MOTOR_DEFAULT = "A40-12L-V4-kv410-direct"
 # Geared A40-10L / 10S stay in the catalog for compare scripts only.
 # The optimizer does not search them.
-N_MOTORS = 2                      # one per boom (user)
+N_MOTORS = 1                      # conventional: one tractor on the centerline
+N_BOOMS = 1
+N_FUSELAGES = 1
+N_VSTABS = 1
+# Twin-motor search required a matching CW/CCW pair. One prop does not.
+REQUIRE_PAIRED_ROTATION_PROPS = False
 GEARBOX_EFFICIENCY = 0.96         # FLAGGED: typical planetary, not on datasheet
 ESC_EFFICIENCY = 0.95             # FLAGGED
 ESC_DUTY_MIN = 0.50               # FLAGGED: below ~50% duty, real ESCs sag;
@@ -152,20 +157,24 @@ WING_AREAL_MASS = 0.84 * 0.8      # kg/m^2 wetted, main wing only (user 2026-08-
                                   # 0.8× the previous 0.84 model). Incl. encapsulation,
                                   # excl. solar cells. Tails stay at TAIL_AREAL_MASS.
 TAIL_AREAL_MASS = 0.44            # kg/m^2 wetted, H-stab and V-stabs
-# 1.0 in OD carbon tube (user, 2026-08-17). Was 0.290 kg/m Ø38.1 mm.
-BOOM_MASS_PER_M = 0.174           # kg/m, wing c/4 → V-stab TE
-BOOM_DIAMETER_M = 1.0 * 0.0254    # 25.4 mm OD; parasite drag uses this
+# Single boom takes the whole tail load (twins had two 1 in tubes).
+# FLAGGED: 1.5 in / 0.290 kg/m is the heavier catalogued tube, not the
+# 1 in twin-boom stick. Do not drop back to 1 in to help closure.
+BOOM_MASS_PER_M = 0.290           # kg/m, wing c/4 → V-stab TE
+BOOM_DIAMETER_M = 1.5 * 0.0254    # 38.1 mm OD; parasite drag uses this
 
 FIXED_MASSES_KG = {
     "avionics": 0.300,            # prototype build table
     "power_boards": 0.100,
-    "servos": 0.080,
-    "escs": 0.060,
+    "servos": 0.080,              # ailerons + elevator + rudder
+    "escs": 0.060,                # FLAGGED: keep the twin ESC budget; one
+                                  # motor does all the work, so do not halve.
     "wiring": 0.096,
-    "fuselages": 0.200,           # FLAGGED: prototype values, revisit at full scale
+    "fuselages": 0.200,           # FLAGGED: one pod holds all packs; do not
+                                  # cut the two-pod total in half.
     "superstructures": 0.200,
-    "boom_vstab_interfaces": 0.100,
-    "vstab_hstab_interfaces": 0.060,  # boom–H-stab fittings (was π-tip joint)
+    "boom_vstab_interfaces": 0.060,   # one joint; FLAGGED not half of 0.100
+    "vstab_hstab_interfaces": 0.040,  # one cruciform joint
 }
 
 # ---------------------------------------------------------------------------
@@ -175,19 +184,20 @@ FIXED_MASSES_KG = {
 # fits two rows. The top surface is fully packable (no extra usable-frac
 # knockdown). H-stab still excludes the elevator separately.
 WING_TOP_USABLE_CHORD_FRAC = 1.0
-HSTAB_ELEVATOR_CHORD_FRAC = 0.30    # FLAGGED: optimizer variable later; keep-out
+HSTAB_ELEVATOR_CHORD_FRAC = 0.30    # FLAGGED: elevator chord; not a solar keep-out
+SOLAR_ON_HSTAB = False              # user: wing-only array
 TAIL_VOLUME_H = 0.50                # FLAGGED: historical for this class
-TAIL_VOLUME_V = 0.030               # total, both V-stabs together (user).
-                                    # Was 0.040, 0.018, 0.035. Not per-fin.
-                                    # No extra π-tail endplate credit.
-# Independent tails: H-stab in the wing plane (arm l_h), V-stabs further
-# aft (arm l_v) with LE behind H-stab TE. Sv = V_V S b / l_v.
+TAIL_VOLUME_V = 0.030               # one fin (same total Vv as the twin fins)
+# Conventional tail: H-stab in the wing plane (arm l_h), one V-stab further
+# aft (arm l_v) with LE behind H-stab TE. Sv = V_V S b / l_v on that fin.
+# H-stab span comes from V_H × AR, not from the wing-joint / center panel.
+HSTAB_SPAN_FRAC_MAX = 0.45          # cap vs wing span; extra area goes into chord
 STATIC_MARGIN_TARGET = 0.12         # FLAGGED: CG at quarter chord assumption
 STATIC_MARGIN_MIN = 0.08            # FLAGGED: lower bound for "reasonable" SM
 ELEVATOR_MAX_DEG = 15.0             # FLAGGED: max elevator for trim/pitch
 PITCH_ACCEL_MIN_RAD_S2 = 0.30       # FLAGGED: ~20 deg in 1.5 s from rest
 HSTAB_AR = 4.5                      # FLAGGED: H-stab aspect ratio
-VSTAB_AR = 1.5                      # per V-stab (user). Was 2.5.
+VSTAB_AR = 1.5                      # one fin (user). Was 2.5.
 PROP_LE_OFFSET_M = 0.70             # prop plane ahead of wing LE (user)
 # Fuselage pod: trailing edge of the main wing → prop disk.
 # CAD at L = 980 mm: Swet = 173128.421 mm² (one pod). Scale linearly with
@@ -196,26 +206,26 @@ FUSELAGE_LENGTH_REF_M = 0.980
 FUSELAGE_WETTED_REF_MM2 = 173128.421
 FUSELAGE_WETTED_REF_M2 = FUSELAGE_WETTED_REF_MM2 * 1e-6
 
-# Lateral/directional (rev6). No rudder: yaw is differential thrust.
+# Lateral/directional. One motor: yaw is a rudder, not differential thrust.
 # No dihedral (user omitted): spiral mode is not claimed stable.
 AILERON_CHORD_FRAC = 0.25           # local chord; FLAGGED typical
 AILERON_TIP_KEEP_OUT_M = 0.04       # no surface in the last 4 cm of tip
 AILERON_MAX_DEG = 20.0              # FLAGGED: roll-rate sizing deflection
-ELEVON_ROLL_DEG = 20.0              # split elevator; cruise trim ≈ 0 so this
-                                    # is available for roll
+ELEVON_ROLL_DEG = 0.0               # one-piece elevator; no split-elevon roll
 ROLL_RATE_MIN_DEG_S = 35.0          # acceptance: ~20 deg bank in ~1 s
 ROLL_DAMPING_EXTRA = 1.15           # FLAGGED: inflate |Cl_p| so rate is harder
 FIN_SIDEWASH_ETA = 0.90             # FLAGGED: no endplate credit; some sidewash
-# Weathercock / yaw-damping floors are off (user): differential thrust
-# is the yaw effector. Derivatives are still computed and reported.
+RUDDER_CHORD_FRAC = 0.30            # FLAGGED: typical; same tau law as elevator
+RUDDER_MAX_DEG = 20.0               # FLAGGED: yaw-control sizing deflection
+# Weathercock / yaw-damping floors are off (copied from the single-
+# empennage side). Yaw control is the rudder, not differential thrust.
 REQUIRE_YAW_STABILITY = False
 CN_BETA_MIN = 0.10                  # /rad; not enforced while REQUIRE_YAW_STABILITY is False
 CN_R_ABS_MIN = 0.030                # |Cn_r|; not enforced while REQUIRE_YAW_STABILITY is False
-YAW_TRIM_SIDESLIP_DEG = 5.0         # differential-thrust vs this β
-# Steady yaw rate from loiter-preserving ΔT vs Cn_r (roll-helix analog).
-# 5 deg/s unwinds the 5° case in ~1 s. Motor spool-up is not modelled.
-YAW_RATE_MIN_DEG_S = 5.0            # FLAGGED: settled DT yaw vs damping
-# No geometric dihedral. Autopilot must hold spiral with aileron/elevon.
+YAW_TRIM_SIDESLIP_DEG = 5.0         # rudder vs this β
+# Steady yaw rate from full rudder leftover vs Cn_r (roll-helix analog).
+YAW_RATE_MIN_DEG_S = 5.0            # FLAGGED: settled rudder yaw vs damping
+# No geometric dihedral. Autopilot must hold spiral with aileron.
 
 # ---------------------------------------------------------------------------
 # Optimizer: continuous variables (low, high, start)
@@ -232,6 +242,7 @@ CONTINUOUS = {
     "tail_arm_m": (0.80, 2.00, 0.90),
     # V-stab AC arm, independent of H-stab. Floor in Design so V LE ≥ H TE.
     "vstab_arm_m": (0.80, 3.00, 1.20),
+    # Center-panel / wing-joint span (packing), not two-boom geometry.
     # 8–17 inboard cell pitches. Start 10 pitches (1.30 m).
     "boom_spacing_m": (8 * CELL_PITCH_M, 17 * CELL_PITCH_M, 10 * CELL_PITCH_M),
     # 0.40 was the old grid floor (0.35 tip on 310 mm is under one cell).
@@ -315,22 +326,22 @@ MC_PROP_POWER = (PROP_POWER_INFLATE, 0.04, 0.98, 1.22)
 MC_AVIONICS_W = (AVIONICS_POWER_W, 0.80, 4.0, 8.0)
 MC_PACK_ENERGY = (1.00, 0.03, 0.90, 1.05)
 
-# Search start is OPT_START (DE seed). REF_* is the current nearest-miss:
-# CAD visualizer, Phase 5/6, S&C baseline. One series string per bay,
-# Voc < 19.2 V, 2 packs, 12L direct. From outputs/phase4_candidates.csv
-# after 0.8× wing areal, 1 in / 0.174 kg/m booms, independent H/V
-# (not closed; margin −158 Wh).
-REF_SPAN_M = 5.907073904288881
-REF_CHORD_M = 0.3139061967762537
-REF_TAIL_ARM_M = 1.2781464122485713
-REF_VSTAB_ARM_M = 1.6962164115480936
+# Search start is OPT_START (DE seed). REF_* is the Phase 4 winner used
+# by the CAD visualizer when the candidates CSV is missing. Conventional
+# single-fuselage, 2 packs, 12L direct, no H-stab solar. From
+# conventional/outputs/phase4_candidates.csv (+19.3 Wh closed; 20x15E
+# cruise point is off-map — FLAG).
+REF_SPAN_M = 5.941386490218956
+REF_CHORD_M = 0.3003892655409105
+REF_TAIL_ARM_M = 1.8128111074638409
+REF_VSTAB_ARM_M = 2.017610639571034
 REF_N_PACKS = 2
-REF_ELEVATOR_FRAC = 0.342728460157672
-REF_TAPER_RATIO = 0.5977267847451117
-REF_TAPER_START_FRAC = 0.2753910328467923
-REF_WASHOUT_TIP_DEG = 0.0186662827891224
-REF_WASHOUT_START_FRAC = 0.7819317306148361
-REF_BOOM_SPACING_M = 1.1328836481628648
+REF_ELEVATOR_FRAC = 0.3484145817711697
+REF_TAPER_RATIO = 0.40892714181410544
+REF_TAPER_START_FRAC = 0.6160624333211883
+REF_WASHOUT_TIP_DEG = 0.0061595600997428335
+REF_WASHOUT_START_FRAC = 0.5518452524953686
+REF_BOOM_SPACING_M = 1.797257332756562
 REF_ONE_STRING_PER_BAY = True
 REF_MOTOR = MOTOR_DEFAULT
-REF_PROP = "16x12E"
+REF_PROP = "20x15E"

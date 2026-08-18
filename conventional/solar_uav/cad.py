@@ -1,7 +1,8 @@
-"""Simple CAD of the twin-boom reference airframe.
+"""Simple CAD of the conventional single-fuselage airframe.
 
-Builds an AeroSandbox solid (wing, H-stab in the wing plane, V-stabs further
-aft, pods, booms), plus solar-cell patches and tractor prop disks. Exports:
+Builds an AeroSandbox solid (wing, H-stab in the wing plane, one V-stab
+further aft, centerline pod and boom), plus solar-cell patches and one
+tractor prop disk. Exports:
 
   * binary STL (structure mesh)
   * OpenSCAD source (lofted airfoils + cylinders)
@@ -24,7 +25,7 @@ import numpy as np
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 from . import config
-from .aircraft import (BOOM_DIAMETER_M, Design, G,
+from .aircraft import (BOOM_DIAMETER_M, Design,
                        reference_design)
 from .components import solar_array
 
@@ -89,12 +90,10 @@ def _cell_quads(design: Design) -> list[np.ndarray]:
     pitch = config.CELL_PITCH_M
     side = config.CELL_SIDE_M
     af_w = asb.Airfoil(design.wing_airfoil)
-    af_t = asb.Airfoil("naca0010")
     quads = []
     used = 0
     budget = design.n_cells
     i_w = design.wing_incidence_deg()
-    i_t = design.hstab_incidence_deg()
 
     def add_cell(x_c, y_c, usable_x, inc, rx, rz, chord, af, x_le, z_camber):
         nonlocal used
@@ -122,7 +121,7 @@ def _cell_quads(design: Design) -> list[np.ndarray]:
 
     y_b = 0.5 * design.boom_spacing
     y_tip = 0.5 * design.span_m
-    # Inboard, then each outboard boom→tip, then H-stab.
+    # Inboard, then each outboard center-panel→tip. No H-stab cells.
     n_in = int(np.floor(design.boom_spacing / pitch))
     y0_in = -y_b
     c_in = design.chord_m
@@ -154,19 +153,6 @@ def _cell_quads(design: Design) -> list[np.ndarray]:
                 if not add_cell(x0 + (row + 0.5) * pitch, y, usable_x, i_w,
                                 0.0, 0.0, c_loc, af_w, 0.0, 0.0):
                     return quads
-    bay = design.solar_bays()["hstab"]
-    x_h = design.hstab_le_x()
-    usable = bay.chord_m * bay.usable_chord_frac
-    y0 = -0.5 * design.hstab_span
-    z_h = design.hstab_z
-    c_h = design.hstab_chord
-    for col in range(bay.cols):
-        y = y0 + (col + 0.5) * pitch
-        if y + 0.5 * side > -y0:
-            continue
-        x = x_h + 0.03 * c_h + 0.5 * side
-        if not add_cell(x, y, x_h + usable, i_t, x_h, z_h, c_h, af_t, x_h, z_h):
-            break
     return quads
 
 
@@ -187,11 +173,7 @@ def _disk_tris(center, normal, radius, n=28) -> tuple[np.ndarray, np.ndarray]:
 
 def mesh_props(design: Design) -> tuple[np.ndarray, np.ndarray]:
     r = 0.5 * design.prop_diameter_in * IN_TO_M
-    yb = 0.5 * design.boom_spacing
-    meshes = []
-    for y in (-yb, yb):
-        meshes.append(_disk_tris([design.prop_x, y, 0.0], [1.0, 0.0, 0.0], r))
-    return _stack(meshes)
+    return _disk_tris([design.prop_x, 0.0, 0.0], [1.0, 0.0, 0.0], r)
 
 
 def mesh_cells(design: Design) -> tuple[np.ndarray, np.ndarray]:
@@ -251,7 +233,6 @@ def write_scad(design: Design, path: Path) -> Path:
         pts = ", ".join(f"[{x:.5f}, {y:.5f}]" for x, y in coords)
         return f"[{pts}]"
 
-    yb = 0.5 * design.boom_spacing
     y_tap = design.y_taper_m
     y_tip = 0.5 * design.span_m
     c_r = design.chord_m
@@ -271,11 +252,12 @@ def write_scad(design: Design, path: Path) -> Path:
     i_w = design.wing_incidence_deg()
     i_t = design.hstab_incidence_deg()
     boom_h = x_vte - x_c4
-    scad = f"""// Twin-boom solar UAV — generated from solar_uav.cad
+    scad = f"""// Conventional solar UAV — generated from solar_uav.cad
 // Units: metres. Open in OpenSCAD (F6 to render).
-// Independent tails: H-stab in the wing plane, V-stabs further aft.
-// Boom: wing c/4 → V-stab TE. Props {config.PROP_LE_OFFSET_M*1000:.0f} mm ahead of wing LE.
-// Incidence from NeuralFoil: wing {i_w:.2f} deg, H-stab {i_t:.2f} deg (booms at α≈0).
+// Single fuselage, single boom, single prop. H-stab in the wing plane,
+// one V-stab further aft. Boom: wing c/4 → V-stab TE.
+// Prop {config.PROP_LE_OFFSET_M*1000:.0f} mm ahead of wing LE.
+// Incidence from NeuralFoil: wing {i_w:.2f} deg, H-stab {i_t:.2f} deg (boom at α≈0).
 $fn = 32;
 
 module airfoil_sec(y, chord, pts) {{
@@ -331,22 +313,20 @@ translate([{x_h:.4f}, 0, {z_h:.4f}])
         color([0.75, 0.78, 0.80])
             naca_tail({design.hstab_span:.4f}, {design.hstab_chord:.4f}, {poly(af_t)});
 
-for (s = [-1, 1]) {{
-    translate([{x_v:.4f}, s*{yb:.4f}, 0])
-        rotate([90, 0, 90])
-            linear_extrude(height={design.vstab_height:.4f})
-                scale([{design.vstab_chord:.4f}, {design.vstab_chord:.4f}])
-                    polygon(points={poly(af_t)});
-    color([0.15, 0.15, 0.16])
-        translate([{x_c4:.4f}, s*{yb:.4f}, 0])
-            rotate([0, 90, 0])
-                cylinder(h={boom_h:.4f}, r={r_boom:.4f});
-    color([0.22, 0.24, 0.26]) nacelle(s*{yb:.4f});
-    color([0.25, 0.25, 0.28, 0.35])
-        translate([{x_prop:.4f}, s*{yb:.4f}, 0])
-            rotate([0, 90, 0])
-                cylinder(h=0.004, r={r_prop:.4f});
-}}
+translate([{x_v:.4f}, 0, 0])
+    rotate([90, 0, 90])
+        linear_extrude(height={design.vstab_height:.4f})
+            scale([{design.vstab_chord:.4f}, {design.vstab_chord:.4f}])
+                polygon(points={poly(af_t)});
+color([0.15, 0.15, 0.16])
+    translate([{x_c4:.4f}, 0, 0])
+        rotate([0, 90, 0])
+            cylinder(h={boom_h:.4f}, r={r_boom:.4f});
+color([0.22, 0.24, 0.26]) nacelle(0);
+color([0.25, 0.25, 0.28, 0.35])
+    translate([{x_prop:.4f}, 0, 0])
+        rotate([0, 90, 0])
+            cylinder(h=0.004, r={r_prop:.4f});
 """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -395,35 +375,11 @@ def mission_snapshot(design: Design) -> dict:
     }
 
 
-def drag_snapshot(design: Design, v_ms: float | None = None) -> dict:
-    """Night-cruise drag budget for the CAD HUD. Same V as the energy march."""
-    v = float(design.min_power_speed() if v_ms is None else v_ms)
-    b = design.drag_breakdown(v_ms=v)
-    d_tot = float(b["drag_total_n"])
-    m = float(b["mass_kg"])
-    return {
-        "v_ms": float(b["v_ms"]),
-        "rho": float(b["rho"]),
-        "q_pa": float(b["q_pa"]),
-        "mass_kg": m,
-        "cl_net": float(b["cl_net"]),
-        "cl_wing": float(b["cl_wing"]),
-        "cl_hstab": float(b["cl_hstab"]),
-        "cd_wingref": float(b["cd_wingref"]),
-        "ld": float(m * G / max(d_tot, 1e-12)),
-        "drag_total_n": d_tot,
-        "power_aero_w": float(b["power_aero_w"]),
-        "re_wing": float(b["re_wing"]),
-        "parts_n": {k: float(val) for k, val in b["drag_n"].items()},
-    }
-
-
 def write_html(design: Design, path: Path,
                structure: tuple[np.ndarray, np.ndarray],
                cells: tuple[np.ndarray, np.ndarray],
                props: tuple[np.ndarray, np.ndarray],
-               energy: dict | None = None,
-               drag: dict | None = None) -> Path:
+               energy: dict | None = None) -> Path:
     """Self-contained Three.js orbit viewer with the mesh embedded as STL-b64."""
     import tempfile
     chunks = {}
@@ -438,13 +394,12 @@ def write_html(design: Design, path: Path,
     dims["mass_breakdown_kg"] = mb
     dims["fixed_breakdown_kg"] = {k: float(v) for k, v in config.FIXED_MASSES_KG.items()}
     dims["energy"] = energy if energy is not None else mission_snapshot(design)
-    dims["drag"] = drag if drag is not None else drag_snapshot(design)
     html = _HTML_TEMPLATE.replace("__STRUCT_B64__", chunks["structure"])
     html = html.replace("__CELLS_B64__", chunks["cells"])
     html = html.replace("__PROPS_B64__", chunks["props"])
     html = html.replace("__DIMS_JSON__", json.dumps(dims, indent=2))
     html = html.replace("__TITLE__", (
-        f"Twin-boom solar UAV  {design.span_m:.2f} m × {design.chord_m:.2f} m  "
+        f"Conventional solar UAV  {design.span_m:.2f} m × {design.chord_m:.2f} m  "
         f"H {design.tail_arm_m:.2f} / V {design.vstab_arm_m:.2f} m  "
         f"({design.n_cells} cells)"))
     path = Path(path)
@@ -521,7 +476,7 @@ def three_view(design: Design, structure, cells, path: Path) -> Path:
     ax3.view_init(elev=22, azim=-60)
     ax3.set_title("Isometric")
     fig.suptitle(
-        f"Nearest-miss  {design.span_m:.2f}×{design.chord_m:.2f} m  "
+        f"Conventional  {design.span_m:.2f}×{design.chord_m:.2f} m  "
         f"λ={design.taper_ratio:.2f}  H {design.tail_arm_m:.2f}/V {design.vstab_arm_m:.2f} m  "
         f"{design.string_plan_label()}  "
         f"AR {design.aspect_ratio:.1f}  {design.mass_kg:.2f} kg",
@@ -544,14 +499,12 @@ def export_all(design: Design | None = None,
     props = mesh_props(d)
     all_pts, all_faces = _stack([structure, cells, props])
     energy = mission_snapshot(d)
-    v_night = energy.get("v_night_ms")
-    drag = drag_snapshot(d, v_ms=v_night)
     paths = {
         "stl": write_stl(out / "aircraft.stl", all_pts, all_faces),
         "stl_structure": write_stl(out / "aircraft_structure.stl", *structure),
         "scad": write_scad(d, out / "aircraft.scad"),
         "html": write_html(d, out / "aircraft_viewer.html", structure, cells, props,
-                           energy=energy, drag=drag),
+                           energy=energy),
         "three_view": three_view(d, structure, cells, out / "aircraft_three_view.png"),
         "mass": write_mass_png(d, out / "aircraft_mass.png"),
         "dims": out / "aircraft_dimensions.json",
@@ -560,7 +513,6 @@ def export_all(design: Design | None = None,
     report["mass_breakdown_kg"] = {k: float(v) for k, v in report["mass_breakdown_kg"].items()}
     report["fixed_breakdown_kg"] = {k: float(v) for k, v in config.FIXED_MASSES_KG.items()}
     report["energy"] = energy
-    report["drag"] = drag
     paths["dims"].write_text(json.dumps(report, indent=2))
     return {k: str(v) for k, v in paths.items()}
 
@@ -584,19 +536,19 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   #side { position: absolute; top: 16px; right: 16px; width: 280px; z-index: 5;
           max-height: calc(100% - 48px); overflow: auto; display: flex;
           flex-direction: column; gap: 10px; pointer-events: auto; }
-  #mass, #energy, #fixed, #drag { background: #25282e; border: 1px solid #3a3f46;
+  #mass, #energy, #fixed { background: #25282e; border: 1px solid #3a3f46;
          padding: 12px 14px; font-size: 12px; line-height: 1.4; }
-  #mass h1, #energy h1, #fixed h1, #drag h1 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
-  #mass .row, #energy .row, #fixed .row, #drag .row { display: grid; grid-template-columns: 100px 1fr 78px;
+  #mass h1, #energy h1, #fixed h1 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+  #mass .row, #energy .row, #fixed .row { display: grid; grid-template-columns: 92px 1fr 70px;
                gap: 6px; align-items: center; margin: 3px 0; }
-  #mass .row.sub, #energy .row.sub, #fixed .row.sub, #drag .row.sub { padding-left: 8px; color: #9aa0a6; font-size: 11px; }
-  #mass .lab, #energy .lab, #fixed .lab, #drag .lab { color: #c4c7cc; overflow: hidden; text-overflow: ellipsis; }
-  #mass .bar, #energy .bar, #fixed .bar, #drag .bar { height: 8px; background: #1b1d21; border: 1px solid #3a3f46; }
-  #mass .bar > i, #energy .bar > i, #fixed .bar > i, #drag .bar > i { display: block; height: 100%; background: #8ab4f8; }
+  #mass .row.sub, #energy .row.sub, #fixed .row.sub { padding-left: 8px; color: #9aa0a6; font-size: 11px; }
+  #mass .lab, #energy .lab, #fixed .lab { color: #c4c7cc; overflow: hidden; text-overflow: ellipsis; }
+  #mass .bar, #energy .bar, #fixed .bar { height: 8px; background: #1b1d21; border: 1px solid #3a3f46; }
+  #mass .bar > i, #energy .bar > i, #fixed .bar > i { display: block; height: 100%; background: #8ab4f8; }
   #mass .row.sub .bar > i, #fixed .bar > i { background: #5f7a9b; }
   #energy .bar > i.neg { background: #f28b82; }
   #energy .bar > i.pos { background: #81c995; }
-  #mass .kg, #energy .kg, #fixed .kg, #drag .kg { text-align: right; color: #f1f3f4; font-variant-numeric: tabular-nums; }
+  #mass .kg, #energy .kg, #fixed .kg { text-align: right; color: #f1f3f4; font-variant-numeric: tabular-nums; }
   #hint { position: absolute; bottom: 12px; right: 16px; color: #9aa0a6; font-size: 11px; z-index: 5; }
 </style>
 </head>
@@ -610,10 +562,6 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div id="energy">
   <h1 id="energy-title">Energy margin</h1>
   <div id="energy-rows"></div>
-</div>
-<div id="drag">
-  <h1 id="drag-title">Night drag</h1>
-  <div id="drag-rows"></div>
 </div>
 <div id="mass">
   <h1 id="mass-title">Mass</h1>
@@ -642,15 +590,15 @@ const rows = [
   ["Motor", DIMS.motor_name || ""],
   ["Prop", (DIMS.prop_name || "") + "  " + (DIMS.prop_diameter_in || 0).toFixed(1) + " in"],
   ["H-stab", DIMS.hstab_span_m.toFixed(2) + " × " + DIMS.hstab_chord_m.toFixed(2) + " m"],
-  ["Boom spacing", DIMS.boom_spacing_m.toFixed(2) + " m"],
+  ["Center panel (packing)", DIMS.boom_spacing_m.toFixed(2) + " m"],
   ["Boom (c/4→V-stab TE)", DIMS.boom_length_m.toFixed(2) + " m  Ø" + (DIMS.boom_diameter_mm || 0).toFixed(0) + " mm"],
   ["Fuselage (prop→wing TE)", (DIMS.fuselage_length_m || 0).toFixed(2) + " m"],
   ["Prop ahead of LE", DIMS.prop_le_offset_m.toFixed(2) + " m"],
   ["V-stab", DIMS.vstab_height_m.toFixed(2) + " × " + DIMS.vstab_chord_m.toFixed(2) + " m  AR " + (DIMS.vstab_ar || 0).toFixed(2)],
-  ["V_V (both fins) / Cn_β", (DIMS.tail_volume_v || 0).toFixed(3) + " / " + (DIMS.cn_beta || 0).toFixed(3)],
+  ["V_V (one fin) / Cn_β", (DIMS.tail_volume_v || 0).toFixed(3) + " / " + (DIMS.cn_beta || 0).toFixed(3)],
   ["Aileron y_in / span", (DIMS.aileron_y_inner_m || 0).toFixed(2) + " / " + (DIMS.aileron_span_each_m || 0).toFixed(2) + " m"],
   ["Roll rate", (DIMS.roll_rate_deg_s || 0).toFixed(1) + " deg/s"],
-  ["DT yaw rate (loiter)", (DIMS.yaw_rate_deg_s || 0).toFixed(1) + " deg/s"],
+  ["Rudder yaw rate", (DIMS.yaw_rate_deg_s || 0).toFixed(1) + " deg/s"],
   ["Izz", (DIMS.izz_kgm2 || 0).toFixed(2) + " kg m²"],
   ["H-stab height", DIMS.hstab_z_m.toFixed(2) + " m (wing plane)"],
   ["Wing incidence", (DIMS.incidence_wing_deg || 0).toFixed(2) + " deg"],
@@ -667,13 +615,6 @@ if (DIMS.energy && DIMS.energy.margin_wh !== undefined) {
     ["Energy margin", sign + e.margin_wh.toFixed(0) + " Wh  " + (e.closed ? "CLOSED" : "OPEN")],
     ["SOC min / end", (100 * e.soc_min).toFixed(1) + "% / " + (100 * e.soc_end).toFixed(1) + "%"],
     ["Night bus", e.p_night_w.toFixed(1) + " W"],
-  );
-}
-if (DIMS.drag && DIMS.drag.drag_total_n !== undefined) {
-  const d = DIMS.drag;
-  rows.push(
-    ["Night D / L/D", d.drag_total_n.toFixed(2) + " N  /  " + d.ld.toFixed(1)],
-    ["Night DV", d.power_aero_w.toFixed(1) + " W"],
   );
 }
 document.getElementById("dims").innerHTML = rows.map(
@@ -759,50 +700,6 @@ document.getElementById("dims").innerHTML = rows.map(
   html += `<div class="row"><div class="lab">SOC min/end</div><div></div>`
     + `<div class="kg">${(100 * e.soc_min).toFixed(1)} / ${(100 * e.soc_end).toFixed(1)}%</div></div>`;
   document.getElementById("energy-rows").innerHTML = html;
-})();
-
-(function renderDrag() {
-  const d = DIMS.drag;
-  if (!d || d.drag_total_n === undefined) return;
-  const title = document.getElementById("drag-title");
-  title.textContent = "Night drag  " + d.drag_total_n.toFixed(2) + " N  L/D "
-    + d.ld.toFixed(1);
-  const parts = d.parts_n || {};
-  const order = [
-    ["wing_profile", "wing profile"],
-    ["wing_induced", "wing induced"],
-    ["hstab_profile", "H-stab profile"],
-    ["hstab_induced", "H-stab induced"],
-    ["vstab_profile", "V-stab"],
-    ["pods", "pods"],
-    ["booms", "booms"],
-    ["control_gaps", "gaps"],
-  ];
-  const total = d.drag_total_n || 1;
-  const max = Math.max(...Object.values(parts), 1e-9);
-  const row = (lab, v) => {
-    const pct = 100 * v / total;
-    const w = 100 * v / max;
-    return `<div class="row">
-      <div class="lab">${lab}</div>
-      <div class="bar"><i style="width:${w.toFixed(1)}%"></i></div>
-      <div class="kg">${v.toFixed(2)} N  ${pct.toFixed(0)}%</div>
-    </div>`;
-  };
-  const kv = (lab, val) => `<div class="row"><div class="lab">${lab}</div><div></div>`
-    + `<div class="kg">${val}</div></div>`;
-  let html = "";
-  for (const [k, lab] of order) {
-    if (parts[k] !== undefined) html += row(lab, parts[k]);
-  }
-  html += kv("V night", d.v_ms.toFixed(2) + " m/s");
-  html += kv("q", d.q_pa.toFixed(1) + " Pa");
-  html += kv("CL net / wing", d.cl_net.toFixed(3) + " / " + d.cl_wing.toFixed(3));
-  html += kv("CL H-stab", d.cl_hstab.toFixed(3));
-  html += kv("CD on S", d.cd_wingref.toFixed(4));
-  html += kv("DV", d.power_aero_w.toFixed(1) + " W");
-  html += kv("Re MAC", (d.re_wing / 1e5).toFixed(2) + "e5");
-  document.getElementById("drag-rows").innerHTML = html;
 })();
 </script>
 <script type="module">

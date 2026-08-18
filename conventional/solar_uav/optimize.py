@@ -208,8 +208,8 @@ def search(env: pd.DataFrame | None = None,
     """Exhaustive discrete search. Returns one row per evaluated, feasible-
     enough candidate (including those that miss energy closure).
 
-    one_string_per_bay: inboard + each outboard + H-stab are each one
-    Voc-legal series string. boom_grid of 0 means auto boom from Vh.
+    one_string_per_bay: inboard + each outboard are each one
+    Voc-legal series string. boom_grid of 0 means default center panel.
     motor_name: catalog key; each airframe re-picks the best climb-legal prop.
     """
     if env is None:
@@ -369,7 +369,9 @@ def search(env: pd.DataFrame | None = None,
                                             "n_cells": d.n_cells,
                                             "inboard_cells": bays["wing_inboard"].capacity,
                                             "outboard_cells": bays["wing_outboard_L"].capacity,
-                                            "hstab_cells": bays["hstab"].capacity,
+                                            "hstab_cells": (
+                                                bays["hstab"].capacity
+                                                if "hstab" in bays else 0),
                                             "motor": motor_key,
                                             "prop": pname,
                                             "mass_kg": d.mass_kg,
@@ -513,7 +515,7 @@ def _candidate_record(d: Design, mres, motor_key: str, pname: str,
         "n_cells": d.n_cells,
         "inboard_cells": bays["wing_inboard"].capacity,
         "outboard_cells": bays["wing_outboard_L"].capacity,
-        "hstab_cells": bays["hstab"].capacity,
+        "hstab_cells": bays["hstab"].capacity if "hstab" in bays else 0,
         "motor": motor_key,
         "prop": pname,
         "mass_kg": d.mass_kg,

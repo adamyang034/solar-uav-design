@@ -84,7 +84,12 @@ def test_mass_and_geometry():
     check("cells do not hang off the planform", used <= cap,
           f"{used} cells vs {cap} slots")
     check("boom length positive", d.boom_length > 0.5, f"{d.boom_length:.2f} m")
-    check("H-stab span == boom spacing", abs(d.hstab_span - d.boom_spacing) < 1e-9)
+    check("H-stab span is from V_H × AR (not the center panel)",
+          abs(d.hstab_span - float(np.sqrt(d.hstab_ar * d.hstab_area))) < 1e-6
+          or d.hstab_span <= config.HSTAB_SPAN_FRAC_MAX * d.span_m + 1e-9,
+          f"H={d.hstab_span:.3f} AR-span={np.sqrt(d.hstab_ar*d.hstab_area):.3f} "
+          f"panel={d.boom_spacing:.3f}")
+    check("no H-stab solar bay", "hstab" not in bays, str(list(bays)))
     print(f"     sample mass {d.mass_kg:.2f} kg, {d.n_cells} cells, "
           f"AR {d.aspect_ratio:.1f}, SM {d.static_margin():.3f}")
 
@@ -132,8 +137,10 @@ def test_aero():
           config.REQUIRE_YAW_STABILITY is False)
     check("reference roll rate >= 35 deg/s",
           ref.roll_ok(), f"{ref.roll_rate_deg_s():.1f} deg/s")
-    check("DT yaw-rate floor is 5 deg/s",
+    check("rudder yaw-rate floor is 5 deg/s",
           abs(config.YAW_RATE_MIN_DEG_S - 5.0) < 1e-12)
+    check("reference rudder yaw is feasible",
+          ref.rudder_yaw_ok(), f"{ref.yaw_rate_deg_s():.1f} deg/s")
     check("loiter speed is 1.3 Vs",
           ref.min_airspeed() >= config.LOITER_STALL_FACTOR * ref.stall_speed() - 1e-6,
           f"{ref.min_airspeed():.2f} vs 1.3×{ref.stall_speed():.2f}")
@@ -217,9 +224,16 @@ def test_site_motor_boom_fuse_pack():
     check("default motor is A40-12L direct",
           config.MOTOR_DEFAULT == "A40-12L-V4-kv410-direct",
           config.MOTOR_DEFAULT)
-    check("Vv floor is 0.030 (both fins together)",
+    check("Vv floor is 0.030 (one fin)",
           abs(config.TAIL_VOLUME_V - 0.030) < 1e-9,
           str(config.TAIL_VOLUME_V))
+    check("one motor, one boom, one fuselage",
+          config.N_MOTORS == 1 and config.N_BOOMS == 1
+          and config.N_FUSELAGES == 1, 
+          f"motors={config.N_MOTORS} booms={config.N_BOOMS}")
+    check("no H-stab solar", config.SOLAR_ON_HSTAB is False)
+    check("paired-rotation props are not required",
+          config.REQUIRE_PAIRED_ROTATION_PROPS is False)
     check("pack count is 2 or 3, cap 3",
           tuple(config.PACK_GRID) == (2, 3), str(config.PACK_GRID))
     check("chord floor is 300 mm, start 310 mm",
@@ -246,9 +260,9 @@ def test_site_motor_boom_fuse_pack():
     check("wing areal is 0.8 × 0.84 kg/m² (main wing only)",
           abs(config.WING_AREAL_MASS - 0.84 * 0.8) < 1e-12,
           str(config.WING_AREAL_MASS))
-    check("boom is 0.174 kg/m, 1 in OD",
-          abs(config.BOOM_MASS_PER_M - 0.174) < 1e-12
-          and abs(config.BOOM_DIAMETER_M - 0.0254) < 1e-12,
+    check("boom is 0.290 kg/m, 1.5 in OD (single load path)",
+          abs(config.BOOM_MASS_PER_M - 0.290) < 1e-12
+          and abs(config.BOOM_DIAMETER_M - 1.5 * 0.0254) < 1e-12,
           f"{config.BOOM_MASS_PER_M} kg/m  Ø{config.BOOM_DIAMETER_M*1000:.1f} mm")
     check("H-stab is in the wing plane",
           abs(d.hstab_z) < 1e-9, f"{d.hstab_z:.3f} m")
@@ -261,7 +275,7 @@ def test_site_motor_boom_fuse_pack():
           abs(config.OPT_START["vstab_arm_m"] - 1.20) < 1e-9)
     x_c4 = d.boom_x_front
     x_vte = d.vstab_te_x
-    check("boom is c/4 to V-stab TE",
+    check("one boom on the centerline",
           abs(d.boom_length - (x_vte - x_c4)) < 1e-9,
           f"{d.boom_length:.3f} vs {x_vte-x_c4:.3f}")
     check("no aft boom", abs(d.aft_boom_length) < 1e-12, str(d.aft_boom_length))
