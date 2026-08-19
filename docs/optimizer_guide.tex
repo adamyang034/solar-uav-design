@@ -58,7 +58,7 @@ This repository is not a CAD package and it is not a gradient-based ``optimal co
 It is a \textbf{physics model plus a discrete search}. For each candidate airplane it answers one question:
 
 \begin{quote}
-\textit{If this airframe flies a clear-sky solstice day at our site, with our packs and our motors, does the battery stay above 20\% overnight and refill by the next afternoon?}
+\textit{If this airframe flies a clear-sky solstice day at our site, with our packs and our motors, does the repeating day stay above 20\% overnight and not get poorer?}
 \end{quote}
 
 If yes, the design \emph{closes}. If not, the model reports how far it missed, in watt-hours. Nothing on the locked grid currently closes.
@@ -66,7 +66,7 @@ If yes, the design \emph{closes}. If not, the model reports how far it missed, i
 The night, not the day, is the problem. On a June solstice the array makes on the order of 200\,W at noon. Cruise only needs about 75\,W of bus power. The airplane still fails because for about \textbf{14 hours} the array cannot cover cruise, and two packs only store 773\,Wh of usable energy.
 
 \begin{intuition}
-\textbf{Intuition.} Think of the battery as a water tank, the motors as a tap, and the solar array as a daytime hose. Closing is not ``does the hose fill the tank?'' Closing is ``can the tank last until the hose starts working again, and then refill before the next night?'' Extra noon solar that you cannot store does not help the night.
+\textbf{Intuition.} Think of the battery as a water tank, the motors as a tap, and the solar array as a daytime hose. Closing is not ``does the hose fill the tank to 100\%?'' Closing is ``can the tank last until the hose starts working again, and is Tuesday's tank at least as full as Monday's?'' Extra noon solar that you cannot store does not help the night. Launching full is a one-night gift; the scored day is the next one.
 \end{intuition}
 
 Three numbers dominate almost every trade:
@@ -94,10 +94,10 @@ Twin-boom, OV-10-style solar UAV:
   \item Independent tails: NACA~0010 H-stab spanning the booms \emph{in the wing plane}; two NACA~0010 V-stabs further aft (fin LE behind H-stab TE). Not a $\pi$-tail.
   \item One tractor propeller and one motor on each boom.
   \item SunPower C60 cells on the wing top and on the H-stab (ahead of the elevator).
-  \item Two Upgrade Energy GOLD V1 6S packs in parallel, Genasun GVB-8-Li-25.0V boost MPPTs (one per string).
+  \item Two Upgrade Energy GOLD V1 6S packs in parallel, Genasun GVB-8-Li-25.0V MPPTs (buck and boost; one per string).
 \end{itemize}
 
-No payload. The mission is an 81-hour endurance record, designed to 89 hours (10\% margin). The optimizer itself simulates \textbf{one 24-hour design day} and requires the pack to refill, because an 89-hour flight is just that day repeated. If you end the afternoon at 95\% instead of 100\%, the next night starts lower, and the mission ratchets empty.
+No payload. The mission is an 81-hour endurance record, designed to 89 hours (10\% margin). The optimizer launches the design day from a full pack (ground charge), then scores the \textbf{next} 24 hours: dawn must stay at or above 20\%, and that repeating day must not get poorer (start $\le$ end). A first night that only survives because you took off full is not closed.
 
 \subsection{Locked mission requirements}
 
@@ -172,35 +172,35 @@ Default motor is the A40-12L kv410 direct-drive. Geared A40-10L / 10S stay in th
 \section{Optimization objective}
 % =====================================================================
 
-\textbf{Maximize 24-hour energy margin} (watt-hours above the 20\% SOC floor), subject to refill, climb, MTOW, span, solar layout, and trim/pitch.
+\textbf{Maximize 24-hour energy margin} (watt-hours above the 20\% SOC floor on the repeating day), subject to periodicity, climb, MTOW, span, solar layout, and trim/pitch.
 
-After the time march,
+After the two-day march (day 1 from SOC $=1$, day 2 from wherever day 1 ended),
 
 \begin{align}
   E_\mathrm{reserve}
     &= (\mathrm{SOC}_\mathrm{min} - 0.20)\,E_\mathrm{pack,total}, \\
-  E_\mathrm{refill}
-    &= (\mathrm{SOC}_\mathrm{end} - 0.98)\,E_\mathrm{pack,total}, \\
+  E_\mathrm{cycle}
+    &= (\mathrm{SOC}_\mathrm{end} - \mathrm{SOC}_\mathrm{start})\,E_\mathrm{pack,total}, \\
   \mathrm{margin}
-    &= \min(E_\mathrm{reserve},\, E_\mathrm{refill}).
+    &= E_\mathrm{reserve}.
 \end{align}
 
-If the pack could not supply the requested power at any step, margin is also capped at $-\,E_\mathrm{unmet}$.
+$\mathrm{SOC}_\mathrm{min}$, $\mathrm{SOC}_\mathrm{start}$, and $\mathrm{SOC}_\mathrm{end}$ are all on \textbf{day 2}. $E_\mathrm{cycle}$ is a diagnostic: it must be $\ge -0.5\,\mathrm{Wh}$ to close, but it is not stacked into the score. If the pack could not supply the requested power at any step, margin is also capped at $-\,E_\mathrm{unmet}$.
 
 \begin{intuition}
-\textbf{Intuition.} $\mathrm{SOC}_\mathrm{min}$ is ``did we scrape the floor at dawn?'' $\mathrm{SOC}_\mathrm{end}$ is ``are we full again this afternoon?'' Taking the minimum of those two watt-hour gaps means a design that barely survives the night but cannot refill is not allowed to look like a winner. For an 89-hour flight, failing to refill is just a slow way to fail on night two.
+\textbf{Intuition.} $\mathrm{SOC}_\mathrm{min}$ is ``did we scrape the floor at dawn on the repeating day?'' $\mathrm{SOC}_\mathrm{end} \ge \mathrm{SOC}_\mathrm{start}$ is ``is Tuesday at least as rich as Monday?'' A design that holds 20\% on the first night from a full launch and then ratchets is not a winner. We do not require the pack to hit 98\%.
 \end{intuition}
 
 A design is \textbf{closed} only if all of these hold:
 
 \begin{itemize}
-  \item $\mathrm{SOC}_\mathrm{min} \ge 0.20$
-  \item unmet energy $< 0.5\,\mathrm{Wh}$
+  \item $\mathrm{SOC}_\mathrm{min} \ge 0.20$ (day 2)
+  \item unmet energy $< 0.5\,\mathrm{Wh}$ (day 2)
   \item climb $\ge 1.5\,\mathrm{m/s}$
-  \item $\mathrm{SOC}_\mathrm{end} \ge 0.98$
+  \item $E_\mathrm{cycle} \ge -0.5\,\mathrm{Wh}$ (day 2 does not get poorer)
 \end{itemize}
 
-Margin of $-158\,\mathrm{Wh}$ on the current nearest-miss means: at the worst point the pack is 158\,Wh below the 20\% floor (here $\mathrm{SOC}_\mathrm{min} = 0.036$). It is not ``158\,Wh of extra solar would close it,'' because extra noon solar mostly spills. You need that energy \emph{during the night}, which means lower night watts, a longer pack, or array power that turns on earlier in the morning. The miss is the 20\% reserve, not unmet energy (unmet is 0\,Wh); refill also fails ($\mathrm{SOC}_\mathrm{end} = 0.887$).
+Margin on the current nearest-miss, scored on the repeating day, is worse than the old first-night figure: $\mathrm{SOC}_\mathrm{min} = 0.007$, a $-28\,\mathrm{Wh}$ cycle, and $80\,\mathrm{Wh}$ unmet. The 20\% floor is still what fails. Extra noon solar mostly spills; you need energy \emph{during the night}. The old 98\% refill gate is gone; this row also ratchets.
 
 % =====================================================================
 \section{Constraints}
@@ -217,7 +217,7 @@ Name & Rule \\
 \midrule
 Span & $b \le 6\,\mathrm{m}$ \\
 Mass & $m \le 12\,\mathrm{kg}$ (re-checked after the prop is chosen) \\
-Solar layout & cells fit the bays; each series string has $1$--$26$ cells; Voc-legal at cold cells \\
+Solar layout & cells fit the bays; each series string stays within the GVB-8 Voc/power cap \\
 Stall & $1.2\,V_\mathrm{stall} \le 25\,\mathrm{m/s}$ (sanity cap) \\
 Stability & static margin $\ge 8\%\,\mathrm{MAC}$, elevator trim, pitch acceleration $\ge 0.30\,\mathrm{rad/s^2}$, roll rate $\ge 35^\circ/\mathrm{s}$, differential-thrust yaw vs $5^\circ$ sideslip and yaw rate $\ge 5^\circ/\mathrm{s}$ (no rudder). $C_{n_\beta}$ / $|C_{n_r}|$ floors off; derivatives still computed. \\
 Boom & carbon tube length $> 0.4\,\mathrm{m}$ \\
@@ -229,13 +229,13 @@ Propulsion & some shortlisted prop can make night thrust on 6S \emph{and} climb 
 
 \subsection{Energy constraints (scored, not discarded)}
 
-Candidates that fail SOC or refill are still written to the CSV so we can see nearest misses. Climb failure also appears in the reason string.
+Candidates that fail the SOC floor or the day-2 cycle are still written to the CSV so we can see nearest misses. Climb failure also appears in the reason string.
 
 \subsection{Electrical / packing constraints baked into geometry}
 
 \begin{itemize}
   \item One series string per bay on the locked search (inboard, left outboard, right outboard, H-stab). Strings do not cross joints.
-  \item String $V_\mathrm{oc}$ at $10^\circ\mathrm{C}$ cells must stay $\le 19.2\,\mathrm{V}$ (depleted 6S). That caps a string at \textbf{26 cells}.
+  \item The GVB-8 bucks and boosts, so string Voc may sit above the 6S bus. Remaining caps: cold-cell Voc $\le 50\,\mathrm{V}$ (recommended STC Voc; 60\,V is the absolute input) and STC string power $\le 210\,\mathrm{W}$. That is \textbf{61 cells}/string on bin I (the 210\,W rating binds before 50\,V).
   \item Genasun input $\le 8\,\mathrm{A}$; C60 $I_\mathrm{mp} \approx 5.9\,\mathrm{A}$, so one series string per MPPT is fine.
   \item Layout pitch $130\,\mathrm{mm}$ (cell is $125\,\mathrm{mm}$ plus gap). A $300\,\mathrm{mm}$ chord still fits two rows.
   \item After packing, every claimed cell is placed as a $125\,\mathrm{mm}$ square and rejected if it overlaps another cell or hangs off the planform (taper, aileron keep-out, elevator keep-out).
@@ -278,7 +278,7 @@ Aileron chord frac & $0.20$--$0.30$, start $0.25$ & locked for S\&C sizing \\
 Packs & $\{2,3\}$ & cap 3; one DE per pack count \\
 Motor & A40-12L kv410 direct & not searched \\
 ESC & fixed $0.060\,\mathrm{kg}$ lump & not searched \\
-$N_\mathrm{cells}$ & from packing & integer, Voc-capped strings \\
+$N_\mathrm{cells}$ & from packing & integer, one MPPT-legal string per bay \\
 Prop & inner loop, see \S\ref{sec:props} & discrete catalog \\
 \bottomrule
 \end{tabular}
@@ -294,7 +294,7 @@ Walk this loop in your head for every row of the CSV.
 
 \begin{enumerate}
   \item Build geometry: planform, boom spacing, H-stab in the wing plane sized to $V_H = 0.50$ (chord also floored by one cell row), V-stabs to $V_V = 0.030$ at their own arm $\ell_v$ (no 1.30\,m area floor), carbon tube from wing $c/4$ to V-stab trailing edge, fuselage pods from wing TE to the prop disk.
-  \item Pack cells: one Voc-legal series string per bay. Reject if cells overlap or hang off the planform.
+  \item Pack cells: one MPPT-legal series string per bay. Reject if cells overlap or hang off the planform.
   \item Sum mass. Drop if $>12\,\mathrm{kg}$.
   \item Check stall, static margin, elevator, pitch, roll rate, weathercock, yaw damping.
   \item For each propeller: night drag at min-power speed $\to$ RPM on the map $\to$ bus watts. Rank by night watts. Keep the cheapest that still climbs at 25.2\,V.
@@ -883,15 +883,19 @@ C60 bin I \flag{}: $P_\mathrm{mp} = 3.40\,\mathrm{W}$ at STC. Temperature coeffi
       \times 0.965 \times 0.95.
 \end{equation}
 
-\subsection{Why 26 cells is a hard wall}
+\subsection{String voltage and power (GVB-8)}
 
-Boost MPPT: string $V_\mathrm{oc}$ must stay below the depleted 6S bus (19.2\,V) so the converter can always boost. Cold cells ($10^\circ\mathrm{C}$) have the highest Voc. Bin I: $V_\mathrm{oc}(10^\circ\mathrm{C}) \approx 0.713\,\mathrm{V}$, so
+The GVB-8 input range is $0$--$60\,\mathrm{V}$ and it charges a 25\,V bus from a panel that may sit above or below that bus (buck and boost). The old rule ``string Voc must stay below the depleted 6S bus so the converter can always boost'' is therefore dropped. Remaining datasheet caps, evaluated conservatively:
 
 \begin{equation}
-  N_{\max} = \left\lfloor \frac{19.2}{0.713} \right\rfloor = 26.
+  N_{\max} = \min\left(
+    \left\lfloor \frac{50}{V_\mathrm{oc}(10^\circ\mathrm{C})} \right\rfloor,
+    \left\lfloor \frac{210\,\mathrm{W}}{P_\mathrm{mp,STC}} \right\rfloor
+  \right)
+  = \min(70, 61) = 61
 \end{equation}
 
-A rectangular 6.0$\times$0.36\,m outboard wants more than 26 cells in a single series string. Under one-string-per-bay that planform is illegal unless you add strings (extra MPPTs, extra mass) or taper so the tip drops cells.
+on bin I ($V_\mathrm{oc}(10^\circ\mathrm{C})\approx 0.713\,\mathrm{V}$, $P_\mathrm{mp}=3.40\,\mathrm{W}$). The 210\,W recommended panel power binds first. A bay that wants more than 61 cells still needs a second string (extra MPPT mass) or it is illegal under one-string-per-bay.
 
 \begin{examplebox}
 \textbf{Example --- extra cells lost.} A mixed-pack rectangular wing with 92--104 cells and extra strings was tried (``just put more solar on''). AR fell to $\sim$16.7, mass rose $\sim$1.4\,kg, night watts rose, and margin got \emph{worse} (about $-184\,\mathrm{Wh}$ vs.\ $-160\,\mathrm{Wh}$ on the tapered 82-cell wing, at the old 410\,g/m booms). Noon already spills. The night does not care that you had 20 more cells at 13:00. It cares that you are heavier and draggier at 02:00.
@@ -936,13 +940,13 @@ Night and day bus loads are each a single number: propulsion at that density's m
 \textbf{Do not mentally replace $P_\mathrm{net}$ with $-P_\mathrm{night}$ at dusk.} If the array is making 60\,W and the load is 75\,W, the pack only supplies 15\,W. Calling that ``night'' and draining 75\,W is how people convince themselves the physics is worse than it is --- and then over-correct with a third pack. The code already counts the shoulders.
 \end{warningbox}
 
-The march starts at the \textbf{last afternoon timestep} where $P_\mathrm{net} > 1\,\mathrm{W}$, with SOC $= 1$, then wraps 24 hours. That way the night is fully counted and we test refill on the following afternoon.
+The march starts at the \textbf{last afternoon timestep} where $P_\mathrm{net} > 1\,\mathrm{W}$, with SOC $= 1$ (launch / ground charge), wraps 24 hours, then repeats that wrap \textbf{without resetting the pack}. Day 2 is the scored loop: the night is fully counted, and we test that Tuesday is not poorer than Monday.
 
 \textbf{Battery-true night} is hours with $P_\mathrm{solar} < P_\mathrm{night}$. On 21 June at El Mirage ($34.65^\circ\mathrm{N}$) that is \textbf{14.0 hours} on the current airplane, not the $\sim$9.5 hours of civil night. A horizontal wing at this latitude simply does not make cruise power at low sun.
 
 \begin{examplebox}
 \textbf{Example --- why ``75\,W $\times$ 14\,h = 1050\,Wh, we need another pack'' is the wrong arithmetic.}
-Usable pack is 773\,Wh. Shoulders (dawn/dusk when the array makes some but not all of cruise) contribute on the order of 100+\,Wh that a naive $P\times t$ ignores. The honest integral is still larger than 773\,Wh --- that is why we miss --- but the scored gap is $158\,\mathrm{Wh}$ below the 20\% floor (and a separate $90\,\mathrm{Wh}$ refill miss), not 300\,Wh. Closing is ``about 11\,W off the night bus'' or ``a bit more pack,'' not ``the polar must be twice as good.''
+Usable pack is 773\,Wh. Shoulders (dawn/dusk when the array makes some but not all of cruise) contribute on the order of 100+\,Wh that a naive $P\times t$ ignores. The honest integral is still larger than 773\,Wh --- that is why we miss. On the repeating day the nearest-miss bottoms at $\mathrm{SOC}=0.007$ with a $-28\,\mathrm{Wh}$ cycle. Closing is ``about 11\,W off the night bus'' or ``a bit more pack,'' not ``the polar must be twice as good.''
 \end{examplebox}
 
 % =====================================================================
@@ -1116,7 +1120,7 @@ These are not slogans. They are what the model has already spent compute to tell
 
 \subsection{Night is the only constraint that is close}
 
-Day array $\sim$200\,W vs.\ $\sim$75\,W cruise. Climb is an order of magnitude above requirement. MTOW has $\sim$3\,kg of unused budget on the nearest-miss. Span is at the wall. The SOC floor is what fails (refill also misses). \textbf{Every other subsystem is a servant of night bus watts and night duration.}
+Day array $\sim$200\,W vs.\ $\sim$75\,W cruise. Climb is an order of magnitude above requirement. MTOW has $\sim$3\,kg of unused budget on the nearest-miss. Span is at the wall. The SOC floor on the repeating day is what fails. \textbf{Every other subsystem is a servant of night bus watts and night duration.}
 
 \subsection{Mass and induced drag beat parasite tricks}
 
@@ -1171,7 +1175,7 @@ New members should not assume the following are in the physics:
   \item Measured ESC efficiency vs.\ duty; measured pack DCIR; measured cell temperature in flight.
   \item Structural sizing (spars are inside the areal density, not a beam model). No aeroelasticity.
   \item Weather other than clear-sky Ineichen. No clouds, no albedo from water, no horizon masking.
-  \item Takeoff roll, landing, or a 89-hour trace with degrading packs --- only a repeating 24\,h day with a refill constraint.
+  \item Takeoff roll, landing, or a 89-hour trace with degrading packs --- only a two-day march (launch-full, then a repeating 24\,h loop).
   \item Payload, retracts, or a third pack (locked out).
 \end{itemize}
 
@@ -1194,8 +1198,8 @@ Stall margin 1.2 / loiter $1.3 V_s$ and 1.5\,m/s climb & operational, not physic
 C60 bin I & worse bins make less power \\
 Cell / interconnect mass 6.5 + 1.5\,g & heavier cells hurt \\
 Encapsulation 0.97, wiring 0.965, IAM diffuse 0.95 & less array \\
-Cold cells $10^\circ\mathrm{C}$ for Voc & fewer cells/string (already 26) \\
-String $V_\mathrm{mp}$ margin 0.95 vs.\ 19.2\,V & packing, not watts \\
+Cold cells $10^\circ\mathrm{C}$ for Voc & 50\,V recommended Voc (not the old 19.2\,V bus cap) \\
+GVB-8 50\,V Voc / 210\,W panel & 61 cells/string on bin I; not the old 26-cell bus cap \\
 Pack $R_i = 45\,\mathrm{m}\Omega$, generic OCV & more $I^2R$, slightly worse SOC accounting \\
 Gearbox 0.96, ESC 0.95, ESC duty 50\% & 0.95 at 27\% duty (kv410 + $16\times12$E) is \emph{optimistic} --- noted \\
 Prop $T\times 0.92$, $P\times 1.08$ & unkind to maps; table-vs-similarity FLAG can still be kind \\
@@ -1235,7 +1239,7 @@ File & Role \\
 \code{solar\_uav/optimize\_kv.py} & free-$K_v$ rewind $\times$ tabulated prop at fixed airframe \\
 \code{solar\_uav/cad.py} / \code{cad\_server.py} & OpenSCAD + Three.js viewer on port 8099 \\
 \code{solar\_uav/components/airfoils.py} & NeuralFoil polars \\
-\code{solar\_uav/components/solar\_array.py} & C60, Voc cap, bay packing \\
+\code{solar\_uav/components/solar\_array.py} & C60, GVB-8 string cap, bay packing \\
 \code{solar\_uav/components/battery.py} & GOLD V1 SOC, 6\,A charge, $I^2R$ \\
 \code{solar\_uav/components/propeller.py} & APC maps, similarity, no $n^2$-down \\
 \code{solar\_uav/components/mejzlik.py} & Mejzlik maps \\

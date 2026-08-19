@@ -55,7 +55,7 @@ def test_fins_and_loiter():
     check("V-stab LE is behind H-stab TE",
           d0.vstab_le_x() + 1e-9 >= d0.hstab_te_x(),
           f"V LE {d0.vstab_le_x():.3f} vs H TE {d0.hstab_te_x():.3f}")
-    aft = reference_design(vstab_arm_set_m=d0.vstab_arm_m + 0.40)
+    aft = reference_design(vstab_arm_set_m=d0.vstab_root_arm_m + 0.40)
     check("longer V-arm shrinks fins at fixed Vv",
           aft.vstab_area_total < d0.vstab_area_total - 1e-6,
           f"aft {aft.vstab_area_total:.4f} vs {d0.vstab_area_total:.4f}")

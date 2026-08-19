@@ -1,9 +1,10 @@
-"""Export / refresh the aircraft CAD visualizer.
+"""Export / refresh AircraftView for the reference airplane.
 
 Usage:  .venv/bin/python scripts/visualize.py
 
-Serves the Three.js viewer at http://127.0.0.1:8099/  (ES modules will not
-load from a file:// page). Reuses the server if it is already running.
+Serves the Three.js AircraftView at http://127.0.0.1:8099/
+(ES modules will not load from a file:// page). Reuses the server if it
+is already running.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ def main():
     d.prop_diameter_in = prop.diameter_in or 22.0
     print(f"CAD: {d.span_m:.3f}×{d.chord_m:.3f} m  λ={d.taper_ratio:.3f}  "
           f"wo={d.washout_tip_deg:.2f}°  H-arm {d.tail_arm_m:.2f} m  "
-          f"V-arm {d.vstab_arm_m:.2f} m  {d.string_plan_label()}  "
+          f"V-arm {d.vstab_root_arm_m:.2f} m  {d.string_plan_label()}  "
           f"{d.n_cells} cells  {config.REF_PROP}  {d.mass_kg:.2f} kg")
     paths = export_all(d)
     print("Wrote:")

@@ -9,8 +9,10 @@ configuration:
     fits an integer pitch.
   * H-stab spanning between the booms (span == boom spacing), NACA 0010,
     in the wing plane,
-  * two V-stabs (NACA 0010) further aft, LE behind H-stab TE; one carbon
-    boom per side, wing c/4 → V-stab TE, 1.0 in OD,
+  * two V-stabs (NACA 0010) further aft, root LE behind H-stab TE;
+    unswept; each fin straddles the H-stab (half above, half below) so
+    side-force sits near z=0; one carbon boom per side, wing c/4 →
+    V-stab root TE, 1.0 in OD,
     * fuselage pods from wing TE to the prop disk (CAD-scaled wetted area),
   * mass buildup from measured areal densities + fixed avionics masses,
   * drag polar: NeuralFoil profile drag + induced + parasite + tail load
@@ -171,12 +173,13 @@ def flap_tau(cf_over_c: float) -> float:
 
 
 def reference_design(**kwargs) -> Design:
-    """Phase 4 best-so-far planform used for Phase 5/6 and the CAD visualizer."""
+    """Current best planform used for Phase 5/6 and the CAD visualizer."""
     fields = dict(
         span_m=config.REF_SPAN_M,
         chord_m=config.REF_CHORD_M,
         tail_arm_m=config.REF_TAIL_ARM_M,
         vstab_arm_set_m=config.REF_VSTAB_ARM_M,
+        vstab_sweep_deg=config.REF_VSTAB_SWEEP_DEG,
         n_packs=config.REF_N_PACKS,
         cells_per_string=None,
         n_strings=None,
@@ -244,7 +247,8 @@ class Design:
     taper_start_frac: float = 1.0     # fraction of outboard span kept rectangular
     boom_spacing_set_m: float | None = None  # None = derive from Vh × H-stab AR
     vstab_arm_set_m: float | None = None  # None = just behind H-stab TE
-    one_string_per_bay: bool = False  # True: 1 series string/bay, Voc-capped
+    vstab_sweep_deg: float = config.VSTAB_SWEEP_DEG  # 0; leftover, not a search var
+    one_string_per_bay: bool = False  # True: 1 series string/bay, MPPT-capped
     wing_airfoil: str = "s4310"
     hstab_ar: float = config.HSTAB_AR
     vstab_ar: float = config.VSTAB_AR
@@ -430,37 +434,75 @@ class Design:
         c = each / max(h, 1e-9)
         return sv, h, c
 
-    def vstab_arm_floor_m(self) -> float:
-        """Shortest V-stab AC arm with V-stab LE at or behind H-stab TE.
+    def _vstab_geom(self) -> dict:
+        """Root-fixed LE sweep: boom ends at root TE; MAC AC is further aft.
 
-        vstab_le = 0.25 mac + l_v − 0.25 c_v
-        hstab_te = 0.25 mac + l_h + 0.75 c_h
-        so l_v ≥ l_h + 0.75 c_h + 0.25 c_v(l_v). Chord shrinks as the arm
-        grows; iterate to the fixed point.
+        l_v = l_root + 0.5 h tan Λ. Sv = V_V S b / l_v so the fin shrinks
+        as sweep adds arm. Λ_c/4 = Λ_LE (constant chord).
         """
+        cached = getattr(self, "_vstab_geom_cache", None)
+        if cached is not None:
+            return cached
+        sweep = float(np.clip(self.vstab_sweep_deg, 0.0,
+                              config.VSTAB_SWEEP_MAX_DEG))
+        tan_l = float(np.tan(np.radians(sweep)))
         a = float(self.tail_arm_m) + 0.75 * self.hstab_chord
+        requested = (float(self.vstab_arm_set_m)
+                     if self.vstab_arm_set_m is not None else None)
         lv = a
-        for _ in range(16):
-            _, _, cv = self._vstab_at_arm(lv)
-            need = a + 0.25 * cv
-            if abs(lv - need) < 1e-9:
-                return need
-            lv = need
-        return lv
+        lv_root = a
+        sv = h = c = 0.0
+        for _ in range(20):
+            sv, h, c = self._vstab_at_arm(lv)
+            need_root = a + 0.25 * c
+            lv_root = need_root if requested is None else max(requested, need_root)
+            lv_new = lv_root + 0.5 * h * tan_l
+            if abs(lv_new - lv) < 1e-9:
+                lv = lv_new
+                break
+            lv = lv_new
+        sv, h, c = self._vstab_at_arm(lv)
+        need_root = a + 0.25 * c
+        lv_root = need_root if requested is None else max(requested, need_root)
+        lv = lv_root + 0.5 * h * tan_l
+        sv, h, c = self._vstab_at_arm(lv)
+        x_le = 0.25 * self.mac_m + lv_root - 0.25 * c
+        dx = h * tan_l
+        out = {
+            "lv": float(lv),
+            "lv_root": float(lv_root),
+            "sv": float(sv),
+            "h": float(h),
+            "c": float(c),
+            "sweep_deg": sweep,
+            "x_le": float(x_le),
+            "x_te": float(x_le + c),
+            "x_tip_le": float(x_le + dx),
+            "x_tip_te": float(x_le + dx + c),
+            "dx_tip": float(dx),
+        }
+        self._vstab_geom_cache = out
+        return out
+
+    def vstab_arm_floor_m(self) -> float:
+        """Shortest root AC arm with V-stab root LE at or behind H-stab TE."""
+        return float(self.tail_arm_m + 0.75 * self.hstab_chord
+                     + 0.25 * self._vstab_geom()["c"])
 
     @property
     def vstab_arm_m(self) -> float:
-        """V-stab AC arm, floored so the fin LE is behind the H-stab TE."""
-        floor = self.vstab_arm_floor_m()
-        requested = (float(self.vstab_arm_set_m)
-                     if self.vstab_arm_set_m is not None
-                     else floor)
-        return float(max(requested, floor))
+        """V-stab MAC AC arm (root arm + sweep offset)."""
+        return float(self._vstab_geom()["lv"])
+
+    @property
+    def vstab_root_arm_m(self) -> float:
+        """Unswept root AC arm. Boom and root chord sit here."""
+        return float(self._vstab_geom()["lv_root"])
 
     @property
     def vstab_area_total(self) -> float:
         """Both fins together. Sv = V_V S b / l_v; each fin is half of this."""
-        return float(self._vstab_at_arm(self.vstab_arm_m)[0])
+        return float(self._vstab_geom()["sv"])
 
     @property
     def vstab_area_each(self) -> float:
@@ -468,11 +510,26 @@ class Design:
 
     @property
     def vstab_height(self) -> float:
-        return float(self._vstab_at_arm(self.vstab_arm_m)[1])
+        return float(self._vstab_geom()["h"])
+
+    @property
+    def vstab_z_hi(self) -> float:
+        """Upper tip z. Straddle: +h/2 so fin side-force sits at z=0."""
+        return float(0.5 * self.vstab_height)
+
+    @property
+    def vstab_z_lo(self) -> float:
+        """Lower tip z. Straddle: −h/2."""
+        return float(-0.5 * self.vstab_height)
+
+    @property
+    def vstab_tip_z(self) -> float:
+        """Lower tip z (same as vstab_z_lo)."""
+        return self.vstab_z_lo
 
     @property
     def vstab_chord(self) -> float:
-        return float(self._vstab_at_arm(self.vstab_arm_m)[2])
+        return float(self._vstab_geom()["c"])
 
     @property
     def boom_x_front(self) -> float:
@@ -480,13 +537,16 @@ class Design:
         return 0.25 * self.chord_m
 
     def vstab_le_x(self) -> float:
-        """V-stab leading-edge x so the fin AC sits `vstab_arm_m` aft of wing AC."""
-        return 0.25 * self.mac_m + self.vstab_arm_m - 0.25 * self.vstab_chord
+        """Root leading-edge x. Tip LE is further aft when the fin is swept."""
+        return float(self._vstab_geom()["x_le"])
+
+    def vstab_tip_le_x(self) -> float:
+        return float(self._vstab_geom()["x_tip_le"])
 
     @property
     def vstab_te_x(self) -> float:
-        """V-stab trailing-edge x."""
-        return self.vstab_le_x() + self.vstab_chord
+        """Root trailing-edge x. Boom ends here; tip TE is further aft."""
+        return float(self._vstab_geom()["x_te"])
 
     @property
     def boom_length(self) -> float:
@@ -695,7 +755,7 @@ class Design:
         lens = self.string_lengths()
         limit = solar_array.max_cells_per_string()
         if self.one_string_per_bay:
-            # Geometry itself must fit one Voc-legal string per bay (no dead cells).
+            # Geometry itself must fit one MPPT-legal string per bay (no dead cells).
             if any(b.capacity > limit for b in self.solar_bays().values()):
                 return False
         return (len(lens) > 0
@@ -1276,11 +1336,19 @@ class Design:
             return float(min(hb, ab["clp"]))
         return hb
 
-    def cn_beta_handbook(self) -> float:
-        """Weathercock Cn_β [1/rad]. Two fins, Helmbold slope, no endplate."""
+    def _fin_lift_slope(self) -> float:
+        """Helmbold CLα with DATCOM cos(Λ_c/4) knock-down. FLAGGED: no
+        extra endplate; sweep does not get a lift-slope credit."""
         ar_v = max(float(self.vstab_ar), 0.5)
         a_v = 2.0 * np.pi / (1.0 + 2.0 / ar_v)
-        return float(config.FIN_SIDEWASH_ETA * a_v * self.tail_volume_v_actual())
+        sweep = float(np.clip(self.vstab_sweep_deg, 0.0,
+                              config.VSTAB_SWEEP_MAX_DEG))
+        return float(a_v * np.cos(np.radians(sweep)))
+
+    def cn_beta_handbook(self) -> float:
+        """Weathercock Cn_β [1/rad]. Two fins, Helmbold slope, no endplate."""
+        return float(config.FIN_SIDEWASH_ETA * self._fin_lift_slope()
+                     * self.tail_volume_v_actual())
 
     def cn_beta(self) -> float:
         """Smaller of handbook vs AeroBuildup (harder weathercock floor)."""
@@ -1306,8 +1374,7 @@ class Design:
 
     def cn_r_handbook(self) -> float:
         """Yaw damping Cn_r [per rad of rb/2V]. ~ (Sv/S)(lt/b)^2."""
-        ar_v = max(float(self.vstab_ar), 0.5)
-        a_v = 2.0 * np.pi / (1.0 + 2.0 / ar_v)
+        a_v = self._fin_lift_slope()
         sv_s = self.vstab_area_total / max(self.wing_area, 1e-9)
         lt_b = self.vstab_arm_m / max(self.span_m, 1e-9)
         return float(-2.0 * config.FIN_SIDEWASH_ETA * a_v * sv_s * lt_b ** 2)
@@ -1584,6 +1651,9 @@ class Design:
             "wing_airfoil": self.wing_airfoil,
             "tail_arm_m": self.tail_arm_m,
             "vstab_arm_m": self.vstab_arm_m,
+            "vstab_root_arm_m": self.vstab_root_arm_m,
+            "vstab_sweep_deg": float(np.clip(self.vstab_sweep_deg, 0.0,
+                                            config.VSTAB_SWEEP_MAX_DEG)),
             "hstab_span_m": self.hstab_span,
             "hstab_chord_m": self.hstab_chord,
             "hstab_area_m2": self.hstab_area,
@@ -1598,6 +1668,10 @@ class Design:
             "y_washout_m": self.y_washout_m,
             "mac_m": self.mac_m,
             "vstab_height_m": self.vstab_height,
+            "vstab_z_lo_m": self.vstab_z_lo,
+            "vstab_z_hi_m": self.vstab_z_hi,
+            "vstab_tip_z_m": self.vstab_tip_z,
+            "vstab_straddle": bool(config.VSTAB_STRADDLE),
             "vstab_chord_m": self.vstab_chord,
             "vstab_ar": self.vstab_ar,
             "vstab_chord_m": self.vstab_chord,
@@ -1607,6 +1681,8 @@ class Design:
             "boom_length_m": self.boom_length,
             "boom_x_front_m": self.boom_x_front,
             "hstab_te_x_m": self.hstab_te_x(),
+            "vstab_le_x_m": self.vstab_le_x(),
+            "vstab_tip_le_x_m": self.vstab_tip_le_x(),
             "vstab_te_x_m": self.vstab_te_x,
             "fuselage_length_m": self.fuselage_length_m,
             "fuselage_wetted_each_m2": self.fuselage_wetted_each_m2,
@@ -1722,9 +1798,9 @@ class Design:
                 name="V-stab",
                 symmetric=False,
                 xsecs=[
-                    asb.WingXSec(xyz_le=[x_v, y_v, 0.0],
+                    asb.WingXSec(xyz_le=[x_v, y_v, self.vstab_z_lo],
                                  chord=self.vstab_chord, airfoil=af_t),
-                    asb.WingXSec(xyz_le=[x_v, y_v, self.vstab_height],
+                    asb.WingXSec(xyz_le=[x_v, y_v, self.vstab_z_hi],
                                  chord=self.vstab_chord, airfoil=af_t),
                 ],
             ))

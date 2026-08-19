@@ -1,6 +1,4 @@
-"""One series string per panel, Voc < 19.2 V (≤26 cells), wider inboard/H-stab.
-
-Outboards are capped at 26 cells by boom spacing + taper. Two packs.
+"""One series string per panel, GVB-8 Voc/power cap, wider inboard/H-stab.
 
 Usage:  .venv/bin/python scripts/run_one_string_bays.py
 """
@@ -33,7 +31,7 @@ def _show(d: Design, label: str):
 
 def main():
     limit = max_cells_per_string()
-    print(f"Voc < {config.BUS_V_MIN} V → max {limit} cells/string")
+    print(f"GVB-8 cap → max {limit} cells/string")
     d0 = Design(span_m=6.0, chord_m=0.30, tail_arm_m=1.30, n_packs=2,
                 elevator_frac=0.28, one_string_per_bay=True,
                 taper_ratio=0.4, taper_start_frac=0.5,
@@ -42,13 +40,13 @@ def main():
 
     env = environment.design_day(config.SOLSTICE_DATE)
     print("=" * 70)
-    print("PHASE 4 — one string per bay, wide inboard, taper ≤26 cells/outboard")
+    print("PHASE 4 — one string per bay, wide inboard")
     df = optimize.search(
         env, verbose=True, mixed_strings=True, one_string_per_bay=True,
         boom_grid=config.BOOM_SPACING_GRID_M,
         elevator_grid=(0.28, 0.34))
     if df.empty:
-        print("  No candidates survived (likely every outboard/inboard > 26 cells).")
+        print("  No candidates survived (likely solar layout / mass).")
         return
     path = OUT / "phase4_one_string_bays.csv"
     df.to_csv(path, index=False)

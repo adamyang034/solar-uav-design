@@ -78,27 +78,29 @@ def fig_geometry(d) -> None:
     c = d.chord_m
     h_le, h_te = d.hstab_le_x(), d.hstab_te_x()
     v_le, v_te = d.vstab_le_x(), d.vstab_te_x
-    vh = d.vstab_height
+    z_lo, z_hi = d.vstab_z_lo, d.vstab_z_hi
     ax.fill([0, c, c, 0], [-0.02, -0.02, 0.02, 0.02],
             color="#5f6b7a", label="Wing (side, thickness schematic)")
     ax.plot([d.boom_x_front, v_te], [0, 0], color="#3c4043", lw=3.2,
             solid_capstyle="butt", label="Boom (c/4 → V-stab TE)")
     ax.fill([h_le, h_te, h_te, h_le], [-0.015, -0.015, 0.015, 0.015],
             color="#1a73e8", label="H-stab (wing plane)")
-    ax.fill([v_le, v_te, v_te, v_le], [0, 0, vh, vh],
-            color="#188038", alpha=0.85, label="V-stab")
+    ax.fill([v_le, v_te, v_te, v_le], [z_lo, z_lo, z_hi, z_hi],
+            color="#188038", alpha=0.85, label="V-stab (straddle)")
     ax.axvline(h_te, color="#1a73e8", ls=":", lw=0.9)
     ax.axvline(v_le, color="#188038", ls=":", lw=0.9)
-    ax.annotate("", xy=(v_le, vh + 0.04), xytext=(h_te, vh + 0.04),
+    ax.axhline(0.0, color="#5f6368", ls=":", lw=0.7)
+    y_note = z_hi + 0.04
+    ax.annotate("", xy=(v_le, y_note), xytext=(h_te, y_note),
                 arrowprops=dict(arrowstyle="<->", color="#5f6368", lw=1.0))
-    ax.text(0.5 * (h_te + v_le), vh + 0.07,
+    ax.text(0.5 * (h_te + v_le), y_note + 0.03,
             f"V LE {v_le - h_te:.2f} m behind H TE",
             ha="center", va="bottom", fontsize=8, color="#5f6368")
     ax.set_aspect("equal")
     ax.set_xlabel("x [m] aft of wing LE")
     ax.set_ylabel("z [m]")
-    ax.set_ylim(-0.18, vh + 0.22)
-    ax.set_title("Independent tails — H-stab in the wing plane, V-stab further aft")
+    ax.set_ylim(z_lo - 0.10, z_hi + 0.16)
+    ax.set_title("Independent tails — V-stab straddles the H-stab plane")
     ax.legend(loc="upper left", fontsize=8, framealpha=0.92)
     _save(fig, "geometry_side.png")
 

@@ -5,7 +5,7 @@ aft, pods, booms), plus solar-cell patches and tractor prop disks. Exports:
 
   * binary STL (structure mesh)
   * OpenSCAD source (lofted airfoils + cylinders)
-  * self-contained Three.js HTML viewer
+  * self-contained AircraftView HTML (3D + specs + energy + planform)
   * annotated matplotlib three-view
 """
 
@@ -258,6 +258,8 @@ def write_scad(design: Design, path: Path) -> Path:
     c_t = design.tip_chord_m
     x_h = design.hstab_le_x()
     x_v = design.vstab_le_x()
+    z_v_lo = design.vstab_z_lo
+    z_v_hi = design.vstab_z_hi
     z_h = design.hstab_z
     r_boom = 0.5 * BOOM_DIAMETER_M
     r_prop = 0.5 * design.prop_diameter_in * IN_TO_M
@@ -273,8 +275,8 @@ def write_scad(design: Design, path: Path) -> Path:
     boom_h = x_vte - x_c4
     scad = f"""// Twin-boom solar UAV — generated from solar_uav.cad
 // Units: metres. Open in OpenSCAD (F6 to render).
-// Independent tails: H-stab in the wing plane, V-stabs further aft.
-// Boom: wing c/4 → V-stab TE. Props {config.PROP_LE_OFFSET_M*1000:.0f} mm ahead of wing LE.
+// Independent tails: H-stab in the wing plane, V-stabs straddle the boom.
+// Boom: wing c/4 → V-stab root TE. Props {config.PROP_LE_OFFSET_M*1000:.0f} mm ahead of wing LE.
 // Incidence from NeuralFoil: wing {i_w:.2f} deg, H-stab {i_t:.2f} deg (booms at α≈0).
 $fn = 32;
 
@@ -310,6 +312,20 @@ module naca_tail(span, chord, pts) {{
             scale([chord, chord]) polygon(points=pts);
 }}
 
+module vfin_sec(x, z, chord, pts) {{
+    // Thin airfoil slice in the X–Y plane at height z (chord along x).
+    translate([x, 0, z])
+        linear_extrude(height=0.002, center=true)
+            scale([chord, chord]) polygon(points=pts);
+}}
+
+module vstab_fin(pts) {{
+    hull() {{
+        vfin_sec(0, {z_v_lo:.4f}, {design.vstab_chord:.4f}, pts);
+        vfin_sec(0, {z_v_hi:.4f}, {design.vstab_chord:.4f}, pts);
+    }}
+}}
+
 module nacelle(y) {{
     translate([{x_prop:.4f}, y, 0])
         rotate([0, 90, 0])
@@ -333,10 +349,8 @@ translate([{x_h:.4f}, 0, {z_h:.4f}])
 
 for (s = [-1, 1]) {{
     translate([{x_v:.4f}, s*{yb:.4f}, 0])
-        rotate([90, 0, 90])
-            linear_extrude(height={design.vstab_height:.4f})
-                scale([{design.vstab_chord:.4f}, {design.vstab_chord:.4f}])
-                    polygon(points={poly(af_t)});
+        color([0.75, 0.78, 0.80])
+            vstab_fin({poly(af_t)});
     color([0.15, 0.15, 0.16])
         translate([{x_c4:.4f}, s*{yb:.4f}, 0])
             rotate([0, 90, 0])
@@ -352,6 +366,42 @@ for (s = [-1, 1]) {{
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(scad)
     return path
+
+
+def _clock_hod(hod: float) -> str:
+    """Local clock `HH:MM` from a fractional hour-of-day."""
+    h = float(hod) % 24.0
+    hh = int(np.floor(h + 1e-9))
+    mm = int(round((h - hh) * 60.0))
+    if mm >= 60:
+        hh, mm = (hh + 1) % 24, 0
+    return f"{hh:02d}:{mm:02d}"
+
+
+def _soc_setpoints(r, e_tot: float) -> list[dict]:
+    """Launch / dawn / 20% floor / next-dusk charge states for the HUD card."""
+    soc = np.asarray(r.soc_trace, dtype=float)
+    hours = np.asarray(r.hours, dtype=float)
+    if soc.size == 0:
+        return []
+    i_min = int(np.argmin(soc))
+    hod_min = (float(r.start_hour) + float(hours[i_min])) % 24.0
+    floor = float(config.SOC_MIN)
+    start_h = float(r.start_hour)
+    return [
+        {"id": "launch", "label": "Launch (full)",
+         "clock": _clock_hod(start_h), "soc": 1.0, "wh": e_tot,
+         "note": "ground charge"},
+        {"id": "dawn", "label": "Dawn (min)",
+         "clock": _clock_hod(hod_min), "soc": float(r.soc_min),
+         "wh": float(r.soc_min) * e_tot, "note": "worst point"},
+        {"id": "floor", "label": "20% floor",
+         "clock": "", "soc": floor, "wh": floor * e_tot,
+         "note": "must stay above"},
+        {"id": "dusk", "label": "Next dusk",
+         "clock": _clock_hod(start_h), "soc": float(r.soc_end),
+         "wh": float(r.soc_end) * e_tot, "note": "loop end"},
+    ]
 
 
 def mission_snapshot(design: Design) -> dict:
@@ -371,11 +421,13 @@ def mission_snapshot(design: Design) -> dict:
     except Exception:
         return {}
     e_tot = float(design.n_packs * config.PACK_ENERGY_WH)
-    return {
+    from .viewer_data import attach_traces
+    snap = {
         "margin_wh": float(r.margin_wh),
         "reserve_wh": float((r.soc_min - config.SOC_MIN) * e_tot),
-        "refill_wh": float((r.soc_end - 0.98) * e_tot),
+        "cycle_wh": float(r.cycle_wh),
         "soc_min": float(r.soc_min),
+        "soc_start": float(r.soc_start),
         "soc_end": float(r.soc_end),
         "unmet_wh": float(r.unmet_wh),
         "spilled_wh": float(r.spilled_wh),
@@ -392,7 +444,10 @@ def mission_snapshot(design: Design) -> dict:
         "battery_night_h": float(r.battery_night_h),
         "v_night_ms": float(r.v_night),
         "soc_floor": float(config.SOC_MIN),
+        "start_clock": _clock_hod(r.start_hour),
+        "setpoints": _soc_setpoints(r, e_tot),
     }
+    return attach_traces(snap, r)
 
 
 def drag_snapshot(design: Design, v_ms: float | None = None) -> dict:
@@ -418,14 +473,23 @@ def drag_snapshot(design: Design, v_ms: float | None = None) -> dict:
     }
 
 
+def _json_default(o):
+    if isinstance(o, np.generic):
+        return o.item()
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    raise TypeError(type(o).__name__)
+
+
 def write_html(design: Design, path: Path,
                structure: tuple[np.ndarray, np.ndarray],
                cells: tuple[np.ndarray, np.ndarray],
                props: tuple[np.ndarray, np.ndarray],
                energy: dict | None = None,
                drag: dict | None = None) -> Path:
-    """Self-contained Three.js orbit viewer with the mesh embedded as STL-b64."""
+    """Self-contained AircraftView HTML (Three.js + tabs). Meshes as STL-b64."""
     import tempfile
+    from .viewer_data import payload as viewer_payload
     chunks = {}
     for key, mesh in (("structure", structure), ("cells", cells), ("props", props)):
         with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as tmp:
@@ -433,23 +497,21 @@ def write_html(design: Design, path: Path,
         write_stl(tmp_path, mesh[0], mesh[1], name=key)
         chunks[key] = base64.b64encode(tmp_path.read_bytes()).decode("ascii")
         tmp_path.unlink(missing_ok=True)
-    dims = design.dimension_report()
-    mb = {k: float(v) for k, v in dims.get("mass_breakdown_kg", {}).items()}
-    dims["mass_breakdown_kg"] = mb
-    dims["fixed_breakdown_kg"] = {k: float(v) for k, v in config.FIXED_MASSES_KG.items()}
-    dims["energy"] = energy if energy is not None else mission_snapshot(design)
-    dims["drag"] = drag if drag is not None else drag_snapshot(design)
-    html = _HTML_TEMPLATE.replace("__STRUCT_B64__", chunks["structure"])
-    html = html.replace("__CELLS_B64__", chunks["cells"])
-    html = html.replace("__PROPS_B64__", chunks["props"])
-    html = html.replace("__DIMS_JSON__", json.dumps(dims, indent=2))
-    html = html.replace("__TITLE__", (
-        f"Twin-boom solar UAV  {design.span_m:.2f} m × {design.chord_m:.2f} m  "
-        f"H {design.tail_arm_m:.2f} / V {design.vstab_arm_m:.2f} m  "
-        f"({design.n_cells} cells)"))
+    energy = energy if energy is not None else mission_snapshot(design)
+    drag = drag if drag is not None else drag_snapshot(design)
+    data = viewer_payload(design, energy, drag)
+    title = data["title"]
+    template = Path(__file__).with_name("aircraft_view.html").read_text(encoding="utf-8")
+    html = (template
+            .replace("__TITLE__", title)
+            .replace("__PAYLOAD_JSON__", json.dumps(
+                data, separators=(",", ":"), default=_json_default))
+            .replace("__STRUCT_B64__", chunks["structure"])
+            .replace("__CELLS_B64__", chunks["cells"])
+            .replace("__PROPS_B64__", chunks["props"]))
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(html)
+    path.write_text(html, encoding="utf-8")
     return path
 
 
@@ -521,8 +583,8 @@ def three_view(design: Design, structure, cells, path: Path) -> Path:
     ax3.view_init(elev=22, azim=-60)
     ax3.set_title("Isometric")
     fig.suptitle(
-        f"Nearest-miss  {design.span_m:.2f}×{design.chord_m:.2f} m  "
-        f"λ={design.taper_ratio:.2f}  H {design.tail_arm_m:.2f}/V {design.vstab_arm_m:.2f} m  "
+        f"{design.span_m:.2f}×{design.chord_m:.2f} m  "
+        f"λ={design.taper_ratio:.2f}  H {design.tail_arm_m:.2f}/V {design.vstab_root_arm_m:.2f} m  "
         f"{design.string_plan_label()}  "
         f"AR {design.aspect_ratio:.1f}  {design.mass_kg:.2f} kg",
         fontsize=11)
@@ -563,336 +625,3 @@ def export_all(design: Design | None = None,
     report["drag"] = drag
     paths["dims"].write_text(json.dumps(report, indent=2))
     return {k: str(v) for k, v in paths.items()}
-
-
-_HTML_TEMPLATE = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<title>__TITLE__</title>
-<style>
-  html, body { margin: 0; height: 100%; background: #1b1d21; color: #e8eaed;
-               font-family: ui-sans-serif, system-ui, sans-serif; }
-  #c { display: block; width: 100%; height: 100%; }
-  #hud { position: absolute; top: 16px; left: 16px; max-width: 340px; z-index: 5;
-         background: #25282e; border: 1px solid #3a3f46; padding: 12px 14px;
-         font-size: 12px; line-height: 1.45; }
-  #hud h1 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
-  #hud table { border-collapse: collapse; width: 100%; }
-  #hud td { padding: 1px 6px 1px 0; color: #c4c7cc; }
-  #hud td.v { text-align: right; color: #f1f3f4; font-variant-numeric: tabular-nums; }
-  #side { position: absolute; top: 16px; right: 16px; width: 280px; z-index: 5;
-          max-height: calc(100% - 48px); overflow: auto; display: flex;
-          flex-direction: column; gap: 10px; pointer-events: auto; }
-  #mass, #energy, #fixed, #drag { background: #25282e; border: 1px solid #3a3f46;
-         padding: 12px 14px; font-size: 12px; line-height: 1.4; }
-  #mass h1, #energy h1, #fixed h1, #drag h1 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
-  #mass .row, #energy .row, #fixed .row, #drag .row { display: grid; grid-template-columns: 100px 1fr 78px;
-               gap: 6px; align-items: center; margin: 3px 0; }
-  #mass .row.sub, #energy .row.sub, #fixed .row.sub, #drag .row.sub { padding-left: 8px; color: #9aa0a6; font-size: 11px; }
-  #mass .lab, #energy .lab, #fixed .lab, #drag .lab { color: #c4c7cc; overflow: hidden; text-overflow: ellipsis; }
-  #mass .bar, #energy .bar, #fixed .bar, #drag .bar { height: 8px; background: #1b1d21; border: 1px solid #3a3f46; }
-  #mass .bar > i, #energy .bar > i, #fixed .bar > i, #drag .bar > i { display: block; height: 100%; background: #8ab4f8; }
-  #mass .row.sub .bar > i, #fixed .bar > i { background: #5f7a9b; }
-  #energy .bar > i.neg { background: #f28b82; }
-  #energy .bar > i.pos { background: #81c995; }
-  #mass .kg, #energy .kg, #fixed .kg, #drag .kg { text-align: right; color: #f1f3f4; font-variant-numeric: tabular-nums; }
-  #hint { position: absolute; bottom: 12px; right: 16px; color: #9aa0a6; font-size: 11px; z-index: 5; }
-</style>
-</head>
-<body>
-<canvas id="c"></canvas>
-<div id="hud">
-  <h1>__TITLE__</h1>
-  <table id="dims"></table>
-</div>
-<div id="side">
-<div id="energy">
-  <h1 id="energy-title">Energy margin</h1>
-  <div id="energy-rows"></div>
-</div>
-<div id="drag">
-  <h1 id="drag-title">Night drag</h1>
-  <div id="drag-rows"></div>
-</div>
-<div id="mass">
-  <h1 id="mass-title">Mass</h1>
-  <div id="mass-rows"></div>
-</div>
-<div id="fixed">
-  <h1 id="fixed-title">Fixed mass</h1>
-  <div id="fixed-rows"></div>
-</div>
-</div>
-<div id="hint">drag to orbit · scroll to zoom · right-drag to pan</div>
-<script type="importmap">
-{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
-            "three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
-</script>
-<script>
-const DIMS = __DIMS_JSON__;
-const rows = [
-  ["Span", DIMS.span_m.toFixed(2) + " m"],
-  ["Chord root / tip", DIMS.chord_m.toFixed(2) + " / " + (DIMS.tip_chord_m || DIMS.chord_m).toFixed(2) + " m"],
-  ["Taper start", (DIMS.y_taper_m || 0).toFixed(2) + " m from CL"],
-  ["Washout", (DIMS.washout_tip_deg || 0).toFixed(2) + " deg from y=" + (DIMS.y_washout_m || 0).toFixed(2) + " m"],
-  ["Wing area / AR", DIMS.wing_area_m2.toFixed(2) + " m² / " + DIMS.aspect_ratio.toFixed(1)],
-  ["Tail arm (H-stab)", DIMS.tail_arm_m.toFixed(2) + " m"],
-  ["V-stab arm", (DIMS.vstab_arm_m || DIMS.tail_arm_m).toFixed(2) + " m"],
-  ["Motor", DIMS.motor_name || ""],
-  ["Prop", (DIMS.prop_name || "") + "  " + (DIMS.prop_diameter_in || 0).toFixed(1) + " in"],
-  ["H-stab", DIMS.hstab_span_m.toFixed(2) + " × " + DIMS.hstab_chord_m.toFixed(2) + " m"],
-  ["Boom spacing", DIMS.boom_spacing_m.toFixed(2) + " m"],
-  ["Boom (c/4→V-stab TE)", DIMS.boom_length_m.toFixed(2) + " m  Ø" + (DIMS.boom_diameter_mm || 0).toFixed(0) + " mm"],
-  ["Fuselage (prop→wing TE)", (DIMS.fuselage_length_m || 0).toFixed(2) + " m"],
-  ["Prop ahead of LE", DIMS.prop_le_offset_m.toFixed(2) + " m"],
-  ["V-stab", DIMS.vstab_height_m.toFixed(2) + " × " + DIMS.vstab_chord_m.toFixed(2) + " m  AR " + (DIMS.vstab_ar || 0).toFixed(2)],
-  ["V_V (both fins) / Cn_β", (DIMS.tail_volume_v || 0).toFixed(3) + " / " + (DIMS.cn_beta || 0).toFixed(3)],
-  ["Aileron y_in / span", (DIMS.aileron_y_inner_m || 0).toFixed(2) + " / " + (DIMS.aileron_span_each_m || 0).toFixed(2) + " m"],
-  ["Roll rate", (DIMS.roll_rate_deg_s || 0).toFixed(1) + " deg/s"],
-  ["DT yaw rate (loiter)", (DIMS.yaw_rate_deg_s || 0).toFixed(1) + " deg/s"],
-  ["Izz", (DIMS.izz_kgm2 || 0).toFixed(2) + " kg m²"],
-  ["H-stab height", DIMS.hstab_z_m.toFixed(2) + " m (wing plane)"],
-  ["Wing incidence", (DIMS.incidence_wing_deg || 0).toFixed(2) + " deg"],
-  ["H-stab incidence", (DIMS.incidence_hstab_deg || 0).toFixed(2) + " deg"],
-  ["Cells", (DIMS.string_plan || (DIMS.n_strings + " × " + DIMS.cells_per_string)) + " = " + DIMS.n_cells],
-  ["Packs", String(DIMS.n_packs)],
-  ["Mass", DIMS.mass_kg.toFixed(2) + " kg"],
-  ["Vstall / Vmin", DIMS.v_stall_ms.toFixed(1) + " / " + DIMS.v_min_ms.toFixed(1) + " m/s"],
-];
-if (DIMS.energy && DIMS.energy.margin_wh !== undefined) {
-  const e = DIMS.energy;
-  const sign = e.margin_wh >= 0 ? "+" : "";
-  rows.push(
-    ["Energy margin", sign + e.margin_wh.toFixed(0) + " Wh  " + (e.closed ? "CLOSED" : "OPEN")],
-    ["SOC min / end", (100 * e.soc_min).toFixed(1) + "% / " + (100 * e.soc_end).toFixed(1) + "%"],
-    ["Night bus", e.p_night_w.toFixed(1) + " W"],
-  );
-}
-if (DIMS.drag && DIMS.drag.drag_total_n !== undefined) {
-  const d = DIMS.drag;
-  rows.push(
-    ["Night D / L/D", d.drag_total_n.toFixed(2) + " N  /  " + d.ld.toFixed(1)],
-    ["Night DV", d.power_aero_w.toFixed(1) + " W"],
-  );
-}
-document.getElementById("dims").innerHTML = rows.map(
-  ([k,v]) => `<tr><td>${k}</td><td class="v">${v}</td></tr>`).join("");
-
-(function renderMass() {
-  const mb = DIMS.mass_breakdown_kg || {};
-  const items = Object.entries(mb).sort((a, b) => b[1] - a[1]);
-  const total = items.reduce((s, [, v]) => s + v, 0) || 1;
-  const max = items.length ? items[0][1] : 1;
-  document.getElementById("mass-title").textContent =
-    "Mass  " + total.toFixed(2) + " kg";
-  const label = (k) => k.replace(/_/g, " ");
-  const row = (k, v, sub) => {
-    const pct = 100 * v / total;
-    const w = 100 * v / max;
-    return `<div class="row${sub ? " sub" : ""}">
-      <div class="lab">${label(k)}</div>
-      <div class="bar"><i style="width:${w.toFixed(1)}%"></i></div>
-      <div class="kg">${v.toFixed(2)} ${pct.toFixed(0)}%</div>
-    </div>`;
-  };
-  document.getElementById("mass-rows").innerHTML =
-    items.map(([k, v]) => row(k, v, false)).join("");
-})();
-
-(function renderFixed() {
-  const fixed = DIMS.fixed_breakdown_kg || {};
-  const items = Object.entries(fixed).sort((a, b) => b[1] - a[1]);
-  const total = items.reduce((s, [, v]) => s + v, 0) || 1;
-  const max = items.length ? items[0][1] : 1;
-  document.getElementById("fixed-title").textContent =
-    "Fixed mass  " + total.toFixed(2) + " kg";
-  const label = (k) => k.replace(/_/g, " ");
-  let html = items.map(([k, v]) => {
-    const pct = 100 * v / total;
-    const w = 100 * v / max;
-    return `<div class="row">
-      <div class="lab">${label(k)}</div>
-      <div class="bar"><i style="width:${w.toFixed(1)}%"></i></div>
-      <div class="kg">${v.toFixed(3)} ${pct.toFixed(0)}%</div>
-    </div>`;
-  }).join("");
-  document.getElementById("fixed-rows").innerHTML = html;
-})();
-
-(function renderEnergy() {
-  const e = DIMS.energy;
-  if (!e || e.margin_wh === undefined) return;
-  const box = document.getElementById("energy");
-  box.classList.remove("hidden");
-  const m = e.margin_wh;
-  const sign = m >= -0.05 ? "+" : "";
-  const title = document.getElementById("energy-title");
-  title.textContent = "Energy margin  " + sign + m.toFixed(0) + " Wh  "
-    + (e.closed ? "CLOSED" : "OPEN");
-  title.style.color = e.closed ? "#81c995" : "#f28b82";
-  const pack = Math.max(e.pack_wh || 1, 1);
-  const usable = Math.max(e.usable_wh || pack * 0.8, 1);
-  const fmt = (v) => (v >= 0 ? "+" : "") + v.toFixed(0);
-  const row = (lab, v, scale, signed) => {
-    const w = Math.min(100, 100 * Math.abs(v) / scale);
-    const cls = signed ? (v < -0.05 ? "neg" : "pos") : "";
-    const val = signed ? fmt(v) + " Wh" : v.toFixed(0) + " Wh";
-    return `<div class="row">
-      <div class="lab">${lab}</div>
-      <div class="bar"><i class="${cls}" style="width:${w.toFixed(1)}%"></i></div>
-      <div class="kg">${val}</div>
-    </div>`;
-  };
-  let html = "";
-  html += row("Margin", m, usable, true);
-  html += row("Reserve 20%", e.reserve_wh, usable, true);
-  html += row("Refill 98%", e.refill_wh, usable, true);
-  html += row("Pack", e.pack_wh, pack, false);
-  html += row("Usable 80%", e.usable_wh, pack, false);
-  html += row("Solar", e.solar_wh, pack, false);
-  html += row("Propulsion", e.propulsion_wh, pack, false);
-  if (e.unmet_wh > 0.5) html += row("Unmet", e.unmet_wh, usable, true);
-  if (e.spilled_wh > 0.5) html += row("Spilled", e.spilled_wh, pack, false);
-  html += `<div class="row"><div class="lab">Night bus</div><div></div>`
-    + `<div class="kg">${e.p_night_w.toFixed(1)} W</div></div>`;
-  html += `<div class="row"><div class="lab">SOC min/end</div><div></div>`
-    + `<div class="kg">${(100 * e.soc_min).toFixed(1)} / ${(100 * e.soc_end).toFixed(1)}%</div></div>`;
-  document.getElementById("energy-rows").innerHTML = html;
-})();
-
-(function renderDrag() {
-  const d = DIMS.drag;
-  if (!d || d.drag_total_n === undefined) return;
-  const title = document.getElementById("drag-title");
-  title.textContent = "Night drag  " + d.drag_total_n.toFixed(2) + " N  L/D "
-    + d.ld.toFixed(1);
-  const parts = d.parts_n || {};
-  const order = [
-    ["wing_profile", "wing profile"],
-    ["wing_induced", "wing induced"],
-    ["hstab_profile", "H-stab profile"],
-    ["hstab_induced", "H-stab induced"],
-    ["vstab_profile", "V-stab"],
-    ["pods", "pods"],
-    ["booms", "booms"],
-    ["control_gaps", "gaps"],
-  ];
-  const total = d.drag_total_n || 1;
-  const max = Math.max(...Object.values(parts), 1e-9);
-  const row = (lab, v) => {
-    const pct = 100 * v / total;
-    const w = 100 * v / max;
-    return `<div class="row">
-      <div class="lab">${lab}</div>
-      <div class="bar"><i style="width:${w.toFixed(1)}%"></i></div>
-      <div class="kg">${v.toFixed(2)} N  ${pct.toFixed(0)}%</div>
-    </div>`;
-  };
-  const kv = (lab, val) => `<div class="row"><div class="lab">${lab}</div><div></div>`
-    + `<div class="kg">${val}</div></div>`;
-  let html = "";
-  for (const [k, lab] of order) {
-    if (parts[k] !== undefined) html += row(lab, parts[k]);
-  }
-  html += kv("V night", d.v_ms.toFixed(2) + " m/s");
-  html += kv("q", d.q_pa.toFixed(1) + " Pa");
-  html += kv("CL net / wing", d.cl_net.toFixed(3) + " / " + d.cl_wing.toFixed(3));
-  html += kv("CL H-stab", d.cl_hstab.toFixed(3));
-  html += kv("CD on S", d.cd_wingref.toFixed(4));
-  html += kv("DV", d.power_aero_w.toFixed(1) + " W");
-  html += kv("Re MAC", (d.re_wing / 1e5).toFixed(2) + "e5");
-  document.getElementById("drag-rows").innerHTML = html;
-})();
-</script>
-<script type="module">
-import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-
-function parseSTL(b64) {
-  const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-  const n = new DataView(bin.buffer).getUint32(80, true);
-  const pos = new Float32Array(n * 9);
-  let o = 84, p = 0;
-  for (let i = 0; i < n; i++) {
-    o += 12; // skip normal
-    for (let k = 0; k < 9; k++, p++, o += 4) pos[p] = new DataView(bin.buffer).getFloat32(o, true);
-    o += 2;
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  g.computeVertexNormals();
-  return g;
-}
-
-const canvas = document.getElementById("c");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1b1d21);
-const camera = new THREE.PerspectiveCamera(40, 2, 0.05, 40);
-camera.up.set(0, 1, 0);
-camera.position.set(1.2, 5.5, 4.2);
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0.25, 0.12, 0);
-controls.update();
-
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-const key = new THREE.DirectionalLight(0xffffff, 0.85);
-key.position.set(2, 6, 4);
-scene.add(key);
-const fill = new THREE.DirectionalLight(0x88aacc, 0.35);
-fill.position.set(-4, 1, -2);
-scene.add(fill);
-
-const grid = new THREE.GridHelper(8, 16, 0x3a3f46, 0x2a2e34);
-grid.position.y = -0.45;
-scene.add(grid);
-
-// AeroSandbox / aircraft axes: x aft, y span, z up. Three.js y is up, so remap.
-function acToThree(geom) {
-  const m = new THREE.Matrix4().set(
-    1,0,0,0,
-    0,0,1,0,
-    0,1,0,0,
-    0,0,0,1
-  );
-  geom.applyMatrix4(m);
-  return geom;
-}
-
-const struct = new THREE.Mesh(
-  acToThree(parseSTL("__STRUCT_B64__")),
-  new THREE.MeshStandardMaterial({ color: 0xc8ccd0, metalness: 0.05, roughness: 0.55 })
-);
-scene.add(struct);
-const cells = new THREE.Mesh(
-  acToThree(parseSTL("__CELLS_B64__")),
-  new THREE.MeshStandardMaterial({
-    color: 0x2f5f8a, metalness: 0.2, roughness: 0.4,
-    side: THREE.DoubleSide,
-    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
-  })
-);
-scene.add(cells);
-const props = new THREE.Mesh(
-  acToThree(parseSTL("__PROPS_B64__")),
-  new THREE.MeshStandardMaterial({ color: 0x4a4e54, metalness: 0.1, roughness: 0.7, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
-);
-scene.add(props);
-
-function resize() {
-  const w = canvas.clientWidth, h = canvas.clientHeight;
-  renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-}
-function tick() {
-  resize();
-  renderer.render(scene, camera);
-  requestAnimationFrame(tick);
-}
-tick();
-</script>
-</body>
-</html>
-"""

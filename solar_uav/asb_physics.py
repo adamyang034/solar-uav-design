@@ -71,8 +71,12 @@ def _geom_key(design) -> tuple:
         round(float(design.chord_m), 4),
         round(float(design.tail_arm_m), 3),
         round(float(design.vstab_arm_m), 3),
+        round(float(design.vstab_root_arm_m), 3),
+        round(float(getattr(design, "vstab_sweep_deg", 0.0)), 2),
         round(float(design.vstab_ar), 2),
         round(float(design.hstab_z), 3),
+        round(float(design.vstab_z_lo), 3),
+        round(float(design.vstab_z_hi), 3),
         round(float(design.boom_spacing), 3),
         round(float(design.taper_ratio), 3),
         round(float(design.taper_start_frac), 3),
@@ -291,7 +295,7 @@ def component_inertia(design) -> dict | None:
     b = float(design.span_m)
     x_c4 = 0.25 * mac
     x_h = float(design.hstab_le_x() + 0.25 * design.hstab_chord)
-    x_v = float(design.vstab_le_x() + 0.25 * design.vstab_chord)
+    x_v = float(0.25 * mac + design.vstab_arm_m)  # swept MAC AC, not root c/4
     z_h = float(design.hstab_z)
     y_b = 0.5 * float(design.boom_spacing)
     x_prop = float(design.prop_x)
@@ -310,9 +314,9 @@ def component_inertia(design) -> dict | None:
         prism(mb["hstab"], design.hstab_chord, design.hstab_span, t_t,
               x_h, 0.0, z_h),
         prism(0.5 * mb["vstabs"], design.vstab_chord, t_t, design.vstab_height,
-              x_v, -y_b, 0.5 * design.vstab_height),
+              x_v, -y_b, 0.0),
         prism(0.5 * mb["vstabs"], design.vstab_chord, t_t, design.vstab_height,
-              x_v, y_b, 0.5 * design.vstab_height),
+              x_v, y_b, 0.0),
         prism(0.5 * mb["booms"], L_main, config.BOOM_DIAMETER_M, config.BOOM_DIAMETER_M,
               x_main_c, -y_b, 0.0),
         prism(0.5 * mb["booms"], L_main, config.BOOM_DIAMETER_M, config.BOOM_DIAMETER_M,

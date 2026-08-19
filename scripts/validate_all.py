@@ -87,7 +87,7 @@ def phase2_array(prof: pd.DataFrame):
     print("=" * 70)
     print("PHASE 2 — Solar array")
     limit = solar_array.max_cells_per_string()
-    print(f"  Max cells/string (boost MPPT, cold cells + low bus): {limit}")
+    print(f"  Max cells/string (GVB-8 cold Voc 50 V / 210 W): {limit}")
 
     bays = solar_array.wing_layout(
         span_m=6.0, chord_m=0.45, boom_spacing_m=1.4,

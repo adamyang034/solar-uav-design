@@ -75,9 +75,11 @@ def test_mass_and_geometry():
     check("pack count is an integer", isinstance(d.n_packs, int), str(d.n_packs))
     check("strings fit in bays", d.solar_feasible(),
           f"strings {d.n_strings} max {d.max_strings()}")
-    check("string length <= boost MPPT limit",
+    check("string length <= MPPT cell limit",
           d.cells_per_string <= max_cells_per_string(),
           str(max_cells_per_string()))
+    check("GVB-8 cap is 61 cells (not the old 26-cell bus wall)",
+          max_cells_per_string() == 61, str(max_cells_per_string()))
     bays = d.solar_bays()
     used = d.n_cells
     cap = sum(b.capacity for b in bays.values())
@@ -172,6 +174,7 @@ def test_battery_and_mission_physics():
     d.prop_diameter_in = psys.prop.diameter_in or 18.0
     res = mission.simulate(d, env, psys)
     print(f"     sample mission: closed={res.closed}  minSOC={res.soc_min:.3f}  "
+          f"loop {res.soc_start:.3f}->{res.soc_end:.3f}  "
           f"margin={res.margin_wh:.0f} Wh  Pnight={res.p_night_w:.0f} W  "
           f"climb={res.climb_ms:.2f} m/s  reason={res.reason}")
     check("mission returns a 24 h trace",
@@ -194,6 +197,54 @@ def test_battery_and_mission_physics():
           < 0.99,
           f"min early SOC {res.soc_trace[:50].min():.3f}")
     return d, res, env, psys
+
+
+def test_periodic_closure():
+    """Day 2 is the gate: a first night from full that then ratchets is open."""
+    print("-- periodic day-2 closure (no 98% refill) --")
+    from solar_uav.aircraft import Design, reference_design
+    from solar_uav.components.motor import drive_for
+    check("cycle slack is 0.5 Wh, not a 98% gate",
+          abs(mission.CYCLE_SLACK_WH - 0.5) < 1e-12,
+          str(mission.CYCLE_SLACK_WH))
+    env = environment.design_day(config.SOLSTICE_DATE)
+    d = reference_design()
+    psys = PropulsionSystem(
+        prop=load_prop(config.REF_PROP),
+        motor=drive_for(config.REF_MOTOR))
+    d.prop_diameter_in = psys.prop.diameter_in or 18.0
+    d.prop_name = config.REF_PROP
+    res = mission.simulate(d, env, psys)
+    print(f"     REF day-2: closed={res.closed}  min={res.soc_min:.3f}  "
+          f"{res.soc_start:.3f}->{res.soc_end:.3f}  cycle={res.cycle_wh:.0f} Wh  "
+          f"reason={res.reason}")
+    check("day-2 start is recorded", np.isfinite(res.soc_start),
+          str(res.soc_start))
+    check("reference 102-cell 3-pack rectangle is closed",
+          res.closed, res.reason)
+    check("closed would require day-2 min >= 0.20, not soc_end >= 0.98",
+          res.soc_min >= config.SOC_MIN - 1e-6,
+          f"min={res.soc_min:.3f} end={res.soc_end:.3f}")
+    open_d = Design(
+        span_m=6.0, chord_m=0.31, tail_arm_m=0.9, n_packs=3,
+        cells_per_string=None, n_strings=None, elevator_frac=0.34,
+        taper_ratio=0.6, taper_start_frac=0.5,
+        boom_spacing_set_m=1.30, vstab_arm_set_m=1.20,
+        one_string_per_bay=True, motor_name=config.MOTOR_DEFAULT,
+        prop_name=config.REF_PROP)
+    open_d.prop_diameter_in = psys.prop.diameter_in or 18.0
+    open_res = mission.simulate(open_d, env, psys)
+    print(f"     tapered 82-cell day-2: closed={open_res.closed}  "
+          f"min={open_res.soc_min:.3f}  cycle={open_res.cycle_wh:.0f} Wh")
+    check("tapered 82-cell 3-pack still ratchets",
+          not open_res.closed, open_res.reason)
+    check("open reason is floor or ratchet, not refill",
+          "refill" not in open_res.reason.lower()
+          and ("floor" in open_res.reason or "ratchet" in open_res.reason),
+          open_res.reason)
+    check("a negative day-2 cycle cannot be closed",
+          open_res.cycle_wh >= -mission.CYCLE_SLACK_WH or not open_res.closed,
+          f"cycle={open_res.cycle_wh:.1f} Wh closed={open_res.closed}")
 
 
 def test_integers_in_search_row():
@@ -259,9 +310,26 @@ def test_site_motor_boom_fuse_pack():
           "vstab_arm_m" in config.OPT_KEYS)
     check("V-stab arm start is 1.20 m",
           abs(config.OPT_START["vstab_arm_m"] - 1.20) < 1e-9)
+    check("V-stab is unswept",
+          abs(config.VSTAB_SWEEP_DEG) < 1e-9
+          and abs(d.vstab_sweep_deg) < 1e-9,
+          f"{d.vstab_sweep_deg:.1f} deg")
+    check("V-stab straddles the H-stab plane",
+          config.VSTAB_STRADDLE
+          and abs(d.vstab_z_lo + d.vstab_z_hi) < 1e-9
+          and abs(d.vstab_z_hi - 0.5 * d.vstab_height) < 1e-9
+          and d.vstab_z_lo < -0.05,
+          f"z [{d.vstab_z_lo:.3f}, {d.vstab_z_hi:.3f}]")
+    check("V-stab MAC arm equals root arm",
+          abs(d.vstab_arm_m - d.vstab_root_arm_m) < 1e-6,
+          f"AC {d.vstab_arm_m:.3f} vs root {d.vstab_root_arm_m:.3f}")
+    check("V-stab root arm stays on the set boom station",
+          abs(d.vstab_root_arm_m - config.REF_VSTAB_ARM_M) < 1e-6
+          or d.vstab_root_arm_m + 1e-9 >= d.vstab_arm_floor_m(),
+          f"root {d.vstab_root_arm_m:.3f}  set {config.REF_VSTAB_ARM_M:.3f}")
     x_c4 = d.boom_x_front
     x_vte = d.vstab_te_x
-    check("boom is c/4 to V-stab TE",
+    check("boom is c/4 to V-stab root TE",
           abs(d.boom_length - (x_vte - x_c4)) < 1e-9,
           f"{d.boom_length:.3f} vs {x_vte-x_c4:.3f}")
     check("no aft boom", abs(d.aft_boom_length) < 1e-12, str(d.aft_boom_length))
@@ -365,7 +433,7 @@ def run_optimizer(env):
     print("  Top 5 by margin:")
     cols = ["span_m", "chord_m", "tail_arm_m", "vstab_arm_m", "n_packs",
             "n_cells", "prop", "mass_kg",
-            "margin_wh", "soc_min", "soc_end", "p_night_w", "closed"]
+            "margin_wh", "soc_min", "soc_start", "soc_end", "p_night_w", "closed"]
     print(df[cols].head(5).to_string(index=False))
     w = optimize.winner(df)
     print("  Winner:")
@@ -495,6 +563,7 @@ def main():
     test_mass_and_geometry()
     test_aero()
     d, sample_res, env, _ = test_battery_and_mission_physics()
+    test_periodic_closure()
     test_integers_in_search_row()
     test_site_motor_boom_fuse_pack()
     test_asb_envelope()

@@ -1,5 +1,6 @@
 """Phase 2 — C60 solar array model: electrical output, string sizing under the
-Genasun boost-MPPT constraint, mass, and geometric layout on the wing/H-stab.
+Genasun GVB-8 input ratings (buck/boost), mass, and geometric layout on the
+wing/H-stab.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from .. import config
 
 
 # ---------------------------------------------------------------------------
-# String sizing under the boost-MPPT constraint
+# String sizing under the GVB-8 input ratings (buck and boost)
 # ---------------------------------------------------------------------------
 def vmp_cell_at_temp(t_cell_c: float, bin_name: str = config.CELL_BIN_DEFAULT) -> float:
     cell = config.C60_BINS[bin_name]
@@ -25,10 +26,19 @@ def voc_cell_at_temp(t_cell_c: float, bin_name: str = config.CELL_BIN_DEFAULT) -
 
 
 def max_cells_per_string(bin_name: str = config.CELL_BIN_DEFAULT) -> int:
-    """Boost MPPT: string Voc must stay below the depleted 6S bus (19.2 V).
-    Evaluated at cold cells (highest Voc)."""
+    """Longest series string the GVB-8 will take.
+
+    Not a boost-only bus cap. Cold-cell Voc must stay under the recommended
+    50 V STC Voc (stricter than the 60 V absolute input). STC string power
+    must stay under the 210 W recommended panel rating. FLAGGED: other
+    buck-boost MPPTs may allow more watts; keep the GVB number until that
+    unit is named.
+    """
+    cell = config.C60_BINS[bin_name]
     v_cell_cold = voc_cell_at_temp(config.COLD_CELL_T_C, bin_name)
-    return int(np.floor(config.BUS_V_MIN / v_cell_cold))
+    n_voc = int(np.floor(config.MPPT_MAX_PV_VOC_V / max(v_cell_cold, 1e-9)))
+    n_pwr = int(np.floor(config.MPPT_MAX_PANEL_W / max(cell.p_mp_w, 1e-9)))
+    return max(1, min(n_voc, n_pwr))
 
 
 # ---------------------------------------------------------------------------
@@ -54,8 +64,9 @@ class SolarArray:
         over = [n for n in self.string_lengths if n > limit]
         if over:
             raise ValueError(
-                f"string length {over} exceeds boost-MPPT limit of {limit} "
-                f"(cold cells + depleted bus)")
+                f"string length {over} exceeds MPPT limit of {limit} "
+                f"(GVB-8 cold Voc {config.MPPT_MAX_PV_VOC_V:.0f} V / "
+                f"{config.MPPT_MAX_PANEL_W:.0f} W)")
         self.n_strings = len(self.string_lengths)
         self.cells_per_string = (self.string_lengths[0]
                                  if self.string_lengths else 0)
@@ -238,8 +249,8 @@ def pack_layout(bays: dict, cells_per_string: int | None = None,
                 one_per_bay: bool = False) -> dict:
     """Per-bay string list.
 
-    one_per_bay: each bay is a single series string (capped at the Voc
-    limit). Otherwise greedy-fill with the longest legal strings, or a
+    one_per_bay: each bay is a single series string (capped at the MPPT
+    cell limit). Otherwise greedy-fill with the longest legal strings, or a
     uniform length if `cells_per_string` is set.
     """
     by_bay = {}

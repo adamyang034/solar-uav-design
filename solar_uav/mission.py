@@ -1,12 +1,12 @@
-"""Phase 4 — 24 h energy-closure time march.
+"""Phase 4 — energy-closure time march (settled 24 h loop).
 
 Walks a design through a design-day irradiance profile at night-loiter /
-day-cruise speeds, charging the battery only up to the 6 A/pack limit,
-and reports the energy margin above the 20% SOC floor.
+day-cruise speeds, charging the battery only up to the 6 A/pack limit.
 
-The march starts at the last afternoon timestep where array power exceeds
-propulsion + avionics (the moment the pack can still be full) and wraps
-for 24 h, so the full night is always included.
+Launch day starts full (ground charge) at the last afternoon surplus.
+Day 2 starts wherever day 1 ended — no reset. Closed means the repeating
+day stays above the 20% SOC floor and does not get poorer (start ≤ end).
+Margin is watt-hours above 20% at the worst point of day 2.
 """
 
 from __future__ import annotations
@@ -21,6 +21,9 @@ from .aircraft import Design, RHO_DAY, RHO_NIGHT
 from .components.battery import BatteryBank
 from .components.propulsion import PropulsionSystem
 from .components.solar_array import SolarArray
+
+# Numerical slack on day-2 end ≥ start. Not a 98% refill gate.
+CYCLE_SLACK_WH = 0.5
 
 
 @dataclass
@@ -68,6 +71,8 @@ class MissionResult:
     reason: str
     mass_kg: float = 0.0
     prop_notes: tuple[str, ...] = ()
+    soc_start: float = float("nan")   # day-2 start (repeating-loop phase)
+    cycle_wh: float = float("nan")    # (soc_end - soc_start) * E on day 2
 
 
 def _wrap_hours(hours: np.ndarray, start_idx: int) -> np.ndarray:
@@ -82,13 +87,34 @@ def _wrap_hours(hours: np.ndarray, start_idx: int) -> np.ndarray:
     return out
 
 
+def _march_day(bank: BatteryBank, order: np.ndarray,
+               p_solar: np.ndarray, p_load: np.ndarray, p_net: np.ndarray,
+               dt_s: float, dt_h: float, av_w: float
+               ) -> tuple[np.ndarray, float, float, float, float]:
+    """One 24 h wrap. Returns SOC trace, spilled Wh, unmet Wh, solar Wh, prop Wh."""
+    n = int(order.size)
+    soc = np.empty(n)
+    spilled = 0.0
+    unmet = 0.0
+    solar_wh = 0.0
+    prop_wh = 0.0
+    for k, i in enumerate(order):
+        solar_wh += float(p_solar[i]) * dt_h
+        prop_wh += float(p_load[i] - av_w) * dt_h
+        r = bank.step(float(p_net[i]), dt_s)
+        spilled += r["p_spilled_w"] * dt_h
+        unmet += r["deficit_w"] * dt_h
+        soc[k] = bank.soc
+    return soc, spilled, unmet, solar_wh, prop_wh
+
+
 def simulate(design: Design,
              env: pd.DataFrame,
              prop_sys: PropulsionSystem,
              dt_min: int = 5,
              scales: MissionScales | None = None) -> MissionResult:
-    """Time-march one design-day. `env` is a 1-minute (or coarser) profile
-    from `environment.design_day`."""
+    """Launch-full day 1, then a repeating day 2. `env` is a 1-minute
+    (or coarser) profile from `environment.design_day`."""
     sc = scales or MissionScales()
     # Downsample
     step = max(1, dt_min)
@@ -141,56 +167,46 @@ def simulate(design: Design,
     p_load = np.where(is_night, p_night, p_day)
     p_net = p_solar - p_load
 
-    # Start at the last afternoon surplus so the pack can be full, then
-    # the following night is fully counted.
+    # Last afternoon surplus so the night is fully counted. Day 1 starts
+    # full (ground charge). Day 2 starts wherever day 1 ended.
     surplus = p_net > 1.0
     start_idx = 0
     if surplus.any():
-        # last True in the second half of the day (afternoon)
         idxs = np.where(surplus)[0]
         afternoon = idxs[hours[idxs] >= 12.0]
         start_idx = int(afternoon[-1] if len(afternoon) else idxs[-1])
 
     bank = BatteryBank(n_packs=design.n_packs, soc=1.0,
                        energy_scale=sc.pack_energy)
-    soc = np.empty(n)
-    spilled = 0.0
-    unmet = 0.0
-    solar_wh = 0.0
-    prop_wh = 0.0
-    av_wh = av_w * 24.0
-
     order = np.arange(start_idx, start_idx + n) % n
-    for k, i in enumerate(order):
-        solar_wh += float(p_solar[i]) * dt_h
-        prop_wh += float(p_load[i] - av_w) * dt_h
-        r = bank.step(float(p_net[i]), dt_s)
-        spilled += r["p_spilled_w"] * dt_h
-        unmet += r["deficit_w"] * dt_h
-        soc[k] = bank.soc
+    _march_day(bank, order, p_solar, p_load, p_net, dt_s, dt_h, av_w)
+
+    soc_start = float(bank.soc)
+    soc, spilled, unmet, solar_wh, prop_wh = _march_day(
+        bank, order, p_solar, p_load, p_net, dt_s, dt_h, av_w)
 
     soc_min = float(soc.min())
     soc_end = float(soc[-1])
     e_tot = bank.energy_total_wh
     reserve_wh = (soc_min - config.SOC_MIN) * e_tot
-    # Cycle margin: we started full at last surplus; 24 h later we must be
-    # full again or the 89 h mission ratchets down to empty.
-    refill_wh = (soc_end - 0.98) * e_tot
-    margin_wh = float(min(reserve_wh, refill_wh))
+    cycle_wh = (soc_end - soc_start) * e_tot
+    margin_wh = float(reserve_wh)
     if unmet > 0.5:
         margin_wh = min(margin_wh, -unmet)
+    periodic_ok = cycle_wh >= -CYCLE_SLACK_WH
     closed = (soc_min >= config.SOC_MIN - 1e-6
               and unmet < 0.5
               and climb >= config.CLIMB_RATE_REQ_MS
-              and soc_end >= 0.98)
+              and periodic_ok)
 
     reasons = []
     if soc_min < config.SOC_MIN or unmet >= 0.5:
         reasons.append(f"SOC floor violated (min {soc_min:.3f}, unmet {unmet:.0f} Wh)")
     if climb < config.CLIMB_RATE_REQ_MS:
         reasons.append(f"climb {climb:.2f} m/s < {config.CLIMB_RATE_REQ_MS}")
-    if soc_end < 0.95:
-        reasons.append(f"did not refill (end SOC {soc_end:.3f})")
+    if not periodic_ok:
+        reasons.append(
+            f"ratchet (day-2 {soc_start:.3f} -> {soc_end:.3f}, {cycle_wh:.0f} Wh)")
     reason = "ok" if closed else "; ".join(reasons) or "infeasible"
     notes = tuple(n for n in (fl_n.get("notes"), fl_d.get("notes")) if n)
     if notes:
@@ -198,6 +214,7 @@ def simulate(design: Design,
 
     hours_wrapped = _wrap_hours(hours, start_idx)
     night_h = float(is_night.mean() * 24.0)
+    av_wh = av_w * 24.0
 
     return MissionResult(
         closed=closed,
@@ -223,4 +240,6 @@ def simulate(design: Design,
         reason=reason,
         mass_kg=mass,
         prop_notes=notes,
+        soc_start=soc_start,
+        cycle_wh=float(cycle_wh),
     )

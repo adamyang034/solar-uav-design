@@ -209,7 +209,7 @@ def search(env: pd.DataFrame | None = None,
     enough candidate (including those that miss energy closure).
 
     one_string_per_bay: inboard + each outboard + H-stab are each one
-    Voc-legal series string. boom_grid of 0 means auto boom from Vh.
+    MPPT-legal series string. boom_grid of 0 means auto boom from Vh.
     motor_name: catalog key; each airframe re-picks the best climb-legal prop.
     """
     if env is None:
@@ -230,7 +230,7 @@ def search(env: pd.DataFrame | None = None,
     tapers = list(_taper_options(taper_pairs))
     if verbose:
         if one_string_per_bay:
-            mode = "one series string per bay (Voc < 19.2 V)"
+            mode = "one series string per bay (GVB-8 Voc/power cap)"
         elif mixed_strings:
             mode = "mixed-length per bay"
         else:
@@ -384,6 +384,8 @@ def search(env: pd.DataFrame | None = None,
                                             "climb_ms": mres.climb_ms,
                                             "soc_min": mres.soc_min,
                                             "soc_end": mres.soc_end,
+                                            "soc_start": mres.soc_start,
+                                            "cycle_wh": mres.cycle_wh,
                                             "margin_wh": mres.margin_wh,
                                             "unmet_wh": mres.unmet_wh,
                                             "spilled_wh": mres.spilled_wh,
@@ -476,7 +478,7 @@ def _candidate_record(d: Design, mres, motor_key: str, pname: str,
         "span_m": d.span_m,
         "chord_m": d.chord_m,
         "tail_arm_m": d.tail_arm_m,
-        "vstab_arm_m": d.vstab_arm_m,
+        "vstab_arm_m": d.vstab_root_arm_m,
         "elevator_frac": d.elevator_frac,
         "taper_ratio": d.taper_ratio,
         "taper_start_frac": d.taper_start_frac,
@@ -528,6 +530,8 @@ def _candidate_record(d: Design, mres, motor_key: str, pname: str,
         "climb_ms": mres.climb_ms,
         "soc_min": mres.soc_min,
         "soc_end": mres.soc_end,
+        "soc_start": mres.soc_start,
+        "cycle_wh": mres.cycle_wh,
         "margin_wh": mres.margin_wh,
         "unmet_wh": mres.unmet_wh,
         "spilled_wh": mres.spilled_wh,
@@ -546,7 +550,7 @@ def _candidate_record(d: Design, mres, motor_key: str, pname: str,
 def evaluate_design(d: Design, env: pd.DataFrame, prop_names: list[str],
                     prop_cache: dict, drive, systems: dict | None = None
                     ) -> dict | None:
-    """Hard constraints → best prop → 24 h march. None if discarded."""
+    """Hard constraints → best prop → two-day energy march. None if discarded."""
     why = _hard_constraints(d)
     if why:
         return None
@@ -578,7 +582,7 @@ def search_continuous(env: pd.DataFrame | None = None,
                       start: dict | None = None) -> pd.DataFrame:
     """Differential evolution over continuous aero variables.
 
-    Discrete: 2 or 3 packs (cap 3), default 12L motor, Voc-legal
+    Discrete: 2 or 3 packs (cap 3), default 12L motor, MPPT-legal
     one-string-per-bay cells, inner-loop propeller. Returns every
     *feasible-enough* evaluation (including energy misses), ranked like
     `search()`. One DE per pack count; pack count is not a DE coordinate.
@@ -606,7 +610,7 @@ def search_continuous(env: pd.DataFrame | None = None,
     if verbose:
         print("  Continuous aero search (differential evolution)", flush=True)
         print(f"  Motor: {drive.spec.name}  ({motor_key})", flush=True)
-        print(f"  Packs: {pack_counts} (cap 3)   strings: one Voc-legal per bay",
+        print(f"  Packs: {pack_counts} (cap 3)   strings: one MPPT-legal per bay",
               flush=True)
         s0 = dict(zip(CONTINUOUS_KEYS, x0))
         print(f"  Start: span {s0['span_m']:.2f} m  "

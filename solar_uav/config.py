@@ -78,16 +78,20 @@ ENCAPSULATION_TRANSMISSION = 0.97   # FLAGGED: thin fiberglass, 2-5% typical.
 WIRING_MISMATCH_SOILING_EFF = 0.965  # FLAGGED: combined array losses
 
 # ---------------------------------------------------------------------------
-# MPPT — Genasun GVB-8-Li-25.0V boost (datasheet)
+# MPPT — Genasun GVB-8-Li-25.0V (datasheet). Input 0–60 V, charges 6S.
+# User 2026-08-18: these units (and the other MPPTs under consideration)
+# buck and boost, so string Voc may sit above or below the 6S bus.
+# Remaining hard limits are the GVB-8 input ratings, not "must boost."
 # ---------------------------------------------------------------------------
 MPPT_EFFICIENCY = 0.95            # criteria E9 (datasheet says 95-98%)
 MPPT_MAX_INPUT_A = 8.0
-MPPT_MAX_STRING_VMP = 20.0        # recommended max panel Vmp (datasheet)
+MPPT_MAX_PV_VOC_V = 50.0          # recommended max panel Voc at STC
+MPPT_MAX_PV_ABS_V = 60.0          # absolute max panel voltage
+MPPT_MAX_PANEL_W = 210.0          # recommended max panel power (Li-25.0V)
 MPPT_MASS_KG = 0.108              # PCB version (housed = 0.185)
 BUS_V_MIN = 19.2                  # 6S at 3.2 V/cell (criteria E1/E4)
 BUS_V_NOM = 22.2
 BUS_V_MAX = 25.2
-STRING_V_MARGIN = 0.95            # FLAGGED: keep string Vmp below margin*bus_min
 COLD_CELL_T_C = 10.0              # FLAGGED: coldest operating cell temp (dawn)
 
 # ---------------------------------------------------------------------------
@@ -181,7 +185,15 @@ TAIL_VOLUME_V = 0.030               # total, both V-stabs together (user).
                                     # Was 0.040, 0.018, 0.035. Not per-fin.
                                     # No extra π-tail endplate credit.
 # Independent tails: H-stab in the wing plane (arm l_h), V-stabs further
-# aft (arm l_v) with LE behind H-stab TE. Sv = V_V S b / l_v.
+# aft (arm l_v) with root LE behind H-stab TE. Sv = V_V S b / l_v.
+# Sweep dropped (user 2026-08-18): extra MAC arm was not worth cos(Λ) CLα.
+VSTAB_SWEEP_DEG = 0.0
+VSTAB_SWEEP_MAX_DEG = 45.0
+# Half the fin above the H-stab, half below, so side-force acts near z=0
+# (small roll from yaw). Upper half can shade H-stab solar; no shadow
+# credit either way. FLAGGED: ~h/2 under the wing; landing gear is not
+# in the model.
+VSTAB_STRADDLE = True
 STATIC_MARGIN_TARGET = 0.12         # FLAGGED: CG at quarter chord assumption
 STATIC_MARGIN_MIN = 0.08            # FLAGGED: lower bound for "reasonable" SM
 ELEVATOR_MAX_DEG = 15.0             # FLAGGED: max elevator for trim/pitch
@@ -230,7 +242,7 @@ CONTINUOUS = {
     "chord_m": (0.300, 4 * CELL_PITCH_M, 0.310),
     # User: start 0.90 m. Short arm grows the H-stab; long arm is boom mass.
     "tail_arm_m": (0.80, 2.00, 0.90),
-    # V-stab AC arm, independent of H-stab. Floor in Design so V LE ≥ H TE.
+    # V-stab AC arm, independent of H-stab. Floor in Design so root LE ≥ H TE.
     "vstab_arm_m": (0.80, 3.00, 1.20),
     # 8–17 inboard cell pitches. Start 10 pitches (1.30 m).
     "boom_spacing_m": (8 * CELL_PITCH_M, 17 * CELL_PITCH_M, 10 * CELL_PITCH_M),
@@ -315,22 +327,24 @@ MC_PROP_POWER = (PROP_POWER_INFLATE, 0.04, 0.98, 1.22)
 MC_AVIONICS_W = (AVIONICS_POWER_W, 0.80, 4.0, 8.0)
 MC_PACK_ENERGY = (1.00, 0.03, 0.90, 1.05)
 
-# Search start is OPT_START (DE seed). REF_* is the current nearest-miss:
-# CAD visualizer, Phase 5/6, S&C baseline. One series string per bay,
-# Voc < 19.2 V, 2 packs, 12L direct. From outputs/phase4_candidates.csv
-# after 0.8× wing areal, 1 in / 0.174 kg/m booms, independent H/V
-# (not closed; margin −158 Wh).
-REF_SPAN_M = 5.907073904288881
-REF_CHORD_M = 0.3139061967762537
-REF_TAIL_ARM_M = 1.2781464122485713
-REF_VSTAB_ARM_M = 1.6962164115480936
-REF_N_PACKS = 2
-REF_ELEVATOR_FRAC = 0.342728460157672
-REF_TAPER_RATIO = 0.5977267847451117
-REF_TAPER_START_FRAC = 0.2753910328467923
-REF_WASHOUT_TIP_DEG = 0.0186662827891224
-REF_WASHOUT_START_FRAC = 0.7819317306148361
-REF_BOOM_SPACING_M = 1.1328836481628648
+# Search start is OPT_START (DE seed). REF_* is the current best airplane
+# for the CAD visualizer and Phase 5/6: 3-pack rectangular 6.00×0.31 m,
+# 102 cells (36+36+20+10), GVB-8 buck/boost strings, 16x12E. Neighborhood
+# close (+9 Wh) after dropping the 19.2 V boost-only Voc wall. V-stab
+# unswept, straddling the H-stab (half above / half below). Not a DE
+# re-run; 9 Wh is thin.
+REF_SPAN_M = 6.0
+REF_CHORD_M = 0.31
+REF_TAIL_ARM_M = 0.90
+REF_VSTAB_ARM_M = 1.20
+REF_N_PACKS = 3
+REF_ELEVATOR_FRAC = 0.34
+REF_TAPER_RATIO = 1.0
+REF_TAPER_START_FRAC = 1.0
+REF_WASHOUT_TIP_DEG = 0.0
+REF_WASHOUT_START_FRAC = 0.0
+REF_BOOM_SPACING_M = 1.30
+REF_VSTAB_SWEEP_DEG = VSTAB_SWEEP_DEG
 REF_ONE_STRING_PER_BAY = True
 REF_MOTOR = MOTOR_DEFAULT
 REF_PROP = "16x12E"
