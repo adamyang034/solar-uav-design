@@ -411,13 +411,14 @@ def mission_snapshot(design: Design) -> dict:
     from . import environment
     from .components.motor import drive_for
     from .components.propulsion import PropulsionSystem, load_prop
-    from .mission import simulate
+    from .mission import display_trace, simulate
     try:
         psys = PropulsionSystem(
             prop=load_prop(design.prop_name),
             motor=drive_for(design.motor_name))
         env = environment.design_day(config.SOLSTICE_DATE)
         r = simulate(design, env, psys)
+        tr = display_trace(design, env, psys, start_hod=8.0, duration_h=60.0)
     except Exception:
         return {}
     e_tot = float(design.n_packs * config.PACK_ENERGY_WH)
@@ -447,7 +448,7 @@ def mission_snapshot(design: Design) -> dict:
         "start_clock": _clock_hod(r.start_hour),
         "setpoints": _soc_setpoints(r, e_tot),
     }
-    return attach_traces(snap, r)
+    return attach_traces(snap, tr if tr is not None else r)
 
 
 def drag_snapshot(design: Design, v_ms: float | None = None) -> dict:

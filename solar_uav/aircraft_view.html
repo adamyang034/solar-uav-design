@@ -214,6 +214,29 @@ function chartColors() {
     hl: cs.getPropertyValue("--hl").trim(),
   };
 }
+function plotTime(e) {
+  const start = Number(e.plot_start_hod ?? 8);
+  const dur = Number(e.plot_duration_h ?? 60);
+  const clock = (h, minutes) => {
+    const abs = start + h;
+    const day = Math.max(0, Math.floor((abs + 1e-9) / 24));
+    let hod = abs - 24 * day;
+    if (hod < 0) hod += 24;
+    const hh = Math.floor(hod + 1e-9) % 24;
+    const mm = Math.round((hod - Math.floor(hod + 1e-9)) * 60) % 60;
+    const pad = n => String(n).padStart(2, "0");
+    return minutes ? `Day ${day + 1} ${pad(hh)}:${pad(mm)}` : `Day ${day + 1} ${pad(hh)}:00`;
+  };
+  const xy = (xs, ys) => xs.map((h, i) => ({ x: h, y: ys[i] }));
+  const xScale = (c, opts) => ({
+    type: "linear", min: 0, max: dur,
+    title: { display: true, text: "From 8:00 AM takeoff", color: c.muted },
+    ticks: { color: c.muted, stepSize: 12, maxRotation: 0, callback: v => clock(v, false) },
+    grid: { color: c.grid },
+    ...(opts || {}),
+  });
+  return { start, dur, clock, xy, xScale };
+}
 
 (function overview() {
   const e = DATA.energy || {}, d = DATA.dims || {}, dr = DATA.drag || {};
@@ -231,10 +254,11 @@ function chartColors() {
       <div class="stat"><div class="v">${(dr.ld || 0).toFixed(1)}</div><div class="l">Night L/D</div></div>
     </div>
     <p class="note">This is the reference airplane (REF), not a search CSV. Design day is solstice clear-sky at El Mirage. Shoulder watts decide closure — noon spill (${(e.spilled_wh||0).toFixed(1)} Wh) does not.</p>
-    <h2>Day-2 SOC</h2>
+    <h2>SOC from 8:00 AM · 2.5 days</h2>
     <div class="chart spark"><canvas id="sparkSoc"></canvas></div>
     <div class="grid3" style="margin-top:22px">${sectionsHtml(DATA.specs.find(s => s.id === "overview") || {sections:[]})}</div>`;
   const hours = e.hours || [], soc = e.soc || [], floor = e.soc_floor || 0.2;
+  const pt = plotTime(e);
   function drawSpark() {
     const c = chartColors();
     const ctx = document.getElementById("sparkSoc");
@@ -242,17 +266,16 @@ function chartColors() {
     if (drawSpark.chart) drawSpark.chart.destroy();
     drawSpark.chart = new Chart(ctx, {
       type: "line",
-      data: { labels: hours.map(h => h.toFixed(0)),
-        datasets: [
-          { data: soc.map(s => 100 * s), borderColor: c.accent, backgroundColor: c.accent + "22",
+      data: { datasets: [
+          { data: pt.xy(hours, soc.map(s => 100 * s)), borderColor: c.accent, backgroundColor: c.accent + "22",
             fill: true, pointRadius: 0, borderWidth: 1.5, tension: 0.25 },
-          { data: hours.map(() => 100 * floor), borderColor: c.bad, pointRadius: 0, borderWidth: 1, borderDash: [4, 4] },
+          { data: [{x: 0, y: 100 * floor}, {x: pt.dur, y: 100 * floor}], borderColor: c.bad, pointRadius: 0, borderWidth: 1, borderDash: [4, 4] },
         ] },
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false }, tooltip: { enabled: false } },
         scales: {
-          x: { ticks: { color: c.muted, maxTicksLimit: 9 }, grid: { display: false } },
+          x: pt.xScale(c, { title: { display: false }, ticks: { color: c.muted, stepSize: 12, maxRotation: 0, callback: v => pt.clock(v, false) } }),
           y: { min: 0, max: 100, ticks: { color: c.muted, callback: v => v + "%" }, grid: { color: c.grid } },
         },
       },
@@ -386,52 +409,54 @@ function chartColors() {
       <div class="chart"><canvas id="socChart"></canvas></div>
       <div class="chart"><canvas id="pwrChart"></canvas></div>
     </div>
-    <p class="note">Day-2 march from ${e.start_clock || "launch"}. Yellow dashed = 20% floor. The SOC line goes grey when the array is dark. Dawn min is the amber dot. Shoulder watts decide closure, not noon spill (${(e.spilled_wh||0).toFixed(1)} Wh spilled).</p>
+    <p class="note">Display march: 100% SOC at 8:00 AM, then 2.5 repeating solstice days (to 8:00 PM on day 3). Closure numbers below are still the scored day-2 loop. Grey SOC = array dark. Amber = min SOC in this window. Shoulder watts decide closure, not noon spill (${(e.spilled_wh||0).toFixed(1)} Wh spilled).</p>
     <div class="grid3" style="margin-top:18px">${sectionsHtml(DATA.specs.find(s => s.id === "power") || {sections:[]})}</div>`;
   const hours = e.hours || [];
   const soc = e.soc || [];
   const solar = e.p_solar || [];
+  const load = e.p_load || [];
   const floor = e.soc_floor || 0.2;
+  const pt = plotTime(e);
   let iMin = 0;
   soc.forEach((s, i) => { if (s < soc[iMin]) iMin = i; });
   let socChart, pwrChart;
   function draw() {
     const c = chartColors();
+    const tip = {
+      callbacks: {
+        title: items => items.length ? pt.clock(items[0].parsed.x, true) : "",
+      },
+    };
     const common = {
       responsive: true, maintainAspectRatio: false,
-      scales: {
-        x: { title: { display: true, text: "Hours from launch", color: c.muted }, ticks: { color: c.muted, maxTicksLimit: 13 }, grid: { color: c.grid } },
-        y: { ticks: { color: c.muted }, grid: { color: c.grid } },
-      },
-      plugins: { legend: { labels: { color: c.ink } } },
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: { labels: { color: c.ink } }, tooltip: tip },
     };
     if (socChart) socChart.destroy();
     socChart = new Chart(document.getElementById("socChart"), {
       type: "line",
-      data: { labels: hours.map(h => h.toFixed(1)),
-        datasets: [
-          { label: "SOC", data: soc.map(s => 100 * s), borderColor: c.accent,
+      data: { datasets: [
+          { label: "SOC", data: pt.xy(hours, soc.map(s => 100 * s)), borderColor: c.accent,
             backgroundColor: c.accent + "22", fill: true, pointRadius: 0, borderWidth: 2, tension: 0.2,
             segment: { borderColor: ctx => (solar[ctx.p0DataIndex] || 0) < 1 ? c.muted : c.accent } },
-          { label: "20% floor", data: hours.map(() => 100 * floor), borderColor: c.bad,
+          { label: "20% floor", data: [{x: 0, y: 100 * floor}, {x: pt.dur, y: 100 * floor}], borderColor: c.bad,
             pointRadius: 0, borderWidth: 1, borderDash: [6, 4] },
-          { label: "Dawn min", data: soc.map((s, i) => i === iMin ? 100 * s : null),
+          { label: "Min SOC", data: (iMin >= 0 && hours[iMin] != null) ? [{x: hours[iMin], y: 100 * soc[iMin]}] : [],
             borderColor: c.hl, backgroundColor: c.hl, pointRadius: 5, showLine: false },
         ] },
-      options: { ...common, plugins: { ...common.plugins, title: { display: true, text: "Battery SOC (day 2)", color: c.ink } },
-                  scales: { ...common.scales, y: { ...common.scales.y, title: { display: true, text: "SOC %", color: c.muted }, suggestedMin: 0, suggestedMax: 100 } } },
+      options: { ...common, plugins: { ...common.plugins, title: { display: true, text: "Battery SOC · 2.5 days from 8:00 AM", color: c.ink } },
+                  scales: { x: pt.xScale(c), y: { ticks: { color: c.muted }, grid: { color: c.grid }, title: { display: true, text: "SOC %", color: c.muted }, suggestedMin: 0, suggestedMax: 100 } } },
     });
     if (pwrChart) pwrChart.destroy();
     pwrChart = new Chart(document.getElementById("pwrChart"), {
       type: "line",
-      data: { labels: hours.map(h => h.toFixed(1)),
-        datasets: [
-          { label: "Solar to bus", data: solar, borderColor: c.ok, backgroundColor: c.ok + "22",
+      data: { datasets: [
+          { label: "Solar to bus", data: pt.xy(hours, solar), borderColor: c.ok, backgroundColor: c.ok + "22",
             fill: true, pointRadius: 0, borderWidth: 2, tension: 0.2 },
-          { label: "Load", data: e.p_load || [], borderColor: c.warn, pointRadius: 0, borderWidth: 2, tension: 0.2 },
+          { label: "Load", data: pt.xy(hours, load), borderColor: c.warn, pointRadius: 0, borderWidth: 2, tension: 0.2 },
         ] },
-      options: { ...common, plugins: { ...common.plugins, title: { display: true, text: "Power (W)", color: c.ink } },
-                  scales: { ...common.scales, y: { ...common.scales.y, title: { display: true, text: "W", color: c.muted }, beginAtZero: true } } },
+      options: { ...common, plugins: { ...common.plugins, title: { display: true, text: "Power · 2.5 days from 8:00 AM", color: c.ink } },
+                  scales: { x: pt.xScale(c), y: { ticks: { color: c.muted }, grid: { color: c.grid }, title: { display: true, text: "W", color: c.muted }, beginAtZero: true } } },
     });
   }
   document.addEventListener("av-theme", draw);

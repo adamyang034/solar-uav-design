@@ -362,13 +362,13 @@ def cell_rects(design: Design) -> list[dict]:
 
 
 def attach_traces(energy: dict, result) -> dict:
-    """Add downsampled day-2 traces onto a mission_snapshot dict."""
+    """Add downsampled viewer traces (2.5-day 08:00 display march)."""
     if not energy or result is None:
         return energy
     hours = np.asarray(result.hours, dtype=float).ravel()
     if hours.size == 0:
         return energy
-    n = min(160, hours.size)
+    n = min(288, hours.size)
     idx = np.linspace(0, hours.size - 1, n).astype(int)
     e_tot = float(energy.get("pack_wh") or 1.0)
     soc = np.asarray(result.soc_trace, dtype=float).ravel()
@@ -380,6 +380,8 @@ def attach_traces(energy: dict, result) -> dict:
     pl = np.asarray(result.p_load, dtype=float).ravel()
     energy["p_solar"] = [float(ps[i]) for i in idx] if ps.size == hours.size else _ds(ps, n)
     energy["p_load"] = [float(pl[i]) for i in idx] if pl.size == hours.size else _ds(pl, n)
+    energy["plot_start_hod"] = float(getattr(result, "start_hod", 8.0))
+    energy["plot_duration_h"] = float(getattr(result, "duration_h", hours[-1]))
     return energy
 
 
