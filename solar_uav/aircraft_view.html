@@ -674,7 +674,7 @@ function acToThree(geom) {
   geom.applyMatrix4(new THREE.Matrix4().set(1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,1));
   return geom;
 }
-function acPos(x, y, z) { return new THREE.Vector3(x, z, y); }
+function acPos(x, y, z) { return new THREE.Vector3(x, z, y); }  // aircraft: +x aft, +y span, +z up
 
 function combineTotal(components) {
   let m = 0, mx = 0, my = 0, mz = 0;
@@ -829,6 +829,36 @@ const cgLab = makeSprite("CG", "#ff3b30"); scene.add(cgLab);
 const c4Lab = makeSprite("c/4", "#8ab4f8"); scene.add(c4Lab);
 c4Lab.position.copy(acPos(mp0.x_c4, 0, 0.12));
 
+const axesG = new THREE.Group();
+scene.add(axesG);
+{
+  const L = 0.55;
+  const origin = acPos(0, 0, 0);
+  const axes = [
+    { dir: [1, 0, 0], color: 0xe53935, hex: "#e53935", lab: "X" },
+    { dir: [0, 1, 0], color: 0x43a047, hex: "#43a047", lab: "Y" },
+    { dir: [0, 0, 1], color: 0x1e88e5, hex: "#1e88e5", lab: "Z" },
+  ];
+  for (const a of axes) {
+    const tip = acPos(a.dir[0] * L, a.dir[1] * L, a.dir[2] * L);
+    const dir = tip.clone().sub(origin).normalize();
+    axesG.add(new THREE.ArrowHelper(dir, origin, L, a.color, 0.09, 0.045));
+    const spr = makeSprite(a.lab, a.hex);
+    spr.position.copy(acPos(a.dir[0] * (L + 0.10), a.dir[1] * (L + 0.10), a.dir[2] * (L + 0.10)));
+    spr.scale.set(0.32, 0.09, 1);
+    axesG.add(spr);
+  }
+  const originBall = new THREE.Mesh(
+    new THREE.SphereGeometry(0.022, 14, 12),
+    new THREE.MeshPhongMaterial({ color: 0xfafafa, emissive: 0x888888, emissiveIntensity: 0.35 }));
+  originBall.position.copy(origin);
+  axesG.add(originBall);
+  const originLab = makeSprite("O", "#fafafa");
+  originLab.position.copy(acPos(-0.08, -0.08, -0.08));
+  originLab.scale.set(0.32, 0.09, 1);
+  axesG.add(originLab);
+}
+
 const dimsGroup = new THREE.Group();
 scene.add(dimsGroup);
 const dimObjects = [];
@@ -937,6 +967,7 @@ left.appendChild(panel("View", `
   <label class="chk"><span>Cells</span><input type="checkbox" id="tog-cells" checked></label>
   <label class="chk"><span>Props</span><input type="checkbox" id="tog-props" checked></label>
   <label class="chk"><span>CG / c/4</span><input type="checkbox" id="tog-cg" checked></label>
+  <label class="chk"><span>Origin / axes</span><input type="checkbox" id="tog-axes" checked></label>
   <div class="chk"><span>Skin opacity</span><span class="mono" id="op-lab">28%</span></div>
   <input type="range" id="op" min="0.05" max="1" step="0.01" value="0.28">
   <div class="legend">
@@ -944,6 +975,9 @@ left.appendChild(panel("View", `
     <span><span class="swatch" style="background:#8ab4f8"></span>Wing c/4</span>
     <span><span class="swatch" style="background:#f59e0b"></span>Hinge / straddle</span>
     <span><span class="swatch" style="background:#4a90e2"></span>Pack</span>
+    <span><span class="swatch" style="background:#e53935"></span>X aft</span>
+    <span><span class="swatch" style="background:#43a047"></span>Y span</span>
+    <span><span class="swatch" style="background:#1e88e5"></span>Z up</span>
   </div>
 `));
 left.querySelectorAll("[data-v]").forEach(btn => btn.onclick = () => setView(btn.dataset.v));
@@ -957,6 +991,7 @@ document.getElementById("tog-props").onchange = e => { propsMesh.visible = e.tar
 document.getElementById("tog-cg").onchange = e => {
   cg.visible = c4.visible = cgLab.visible = c4Lab.visible = e.target.checked;
 };
+document.getElementById("tog-axes").onchange = e => { axesG.visible = e.target.checked; };
 document.getElementById("op").oninput = e => {
   const v = +e.target.value;
   structMat.opacity = v; structMat.transparent = v < 1; structMat.depthWrite = v >= 1;
