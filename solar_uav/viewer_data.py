@@ -57,6 +57,86 @@ def _sph_mp(mass: float, r: float, x: float, y: float, z: float) -> dict:
     }
 
 
+def _cell_counts(design: Design) -> tuple[int, int]:
+    n_wing = n_hstab = 0
+    for cell in design.cell_placements():
+        bay = getattr(cell, "bay", "")
+        if bay == "hstab":
+            n_hstab += 1
+        else:
+            n_wing += 1
+    return n_wing, n_hstab
+
+
+def _part(label: str, mass: float) -> dict:
+    return {"label": label, "mass": float(mass)}
+
+
+def _group(gid: str, label: str, parts: list[dict]) -> dict:
+    return {
+        "id": gid,
+        "label": label,
+        "parts": parts,
+        "mass": float(sum(p["mass"] for p in parts)),
+    }
+
+
+def mass_groups(design: Design) -> list[dict]:
+    """Display groups: solar on a surface is rolled into that surface."""
+    mb = design.mass_breakdown()
+    n_wing, n_h = _cell_counts(design)
+    cell = config.CELL_MASS_KG
+    tab = config.CELL_INTERCONNECT_MASS_KG
+    mot = config.MOTOR_CATALOG.get(design.motor_name)
+    mot_name = mot.name if mot else (design.motor_name or "Motor")
+    prop_name = design.prop_name or "Prop"
+    n_m = max(1, int(design.n_mppts))
+    n_p = max(1, int(design.n_packs))
+    m_mppt = mb["mppts"] / n_m
+    m_pack = mb["batteries"] / n_p
+    groups = [
+        _group("wing", "Wing", [
+            _part("Structure", mb["wing"]),
+            _part(f"Solar cells ({n_wing})", n_wing * cell),
+            _part("Interconnects", n_wing * tab),
+        ]),
+        _group("hstab", "H-stab", [
+            _part("Structure", mb["hstab"]),
+            _part(f"Solar cells ({n_h})", n_h * cell),
+            _part("Interconnects", n_h * tab),
+        ]),
+        _group("vstabs", "V-stabs", [
+            _part("V-stab L", 0.5 * mb["vstabs"]),
+            _part("V-stab R", 0.5 * mb["vstabs"]),
+        ]),
+        _group("booms", "Booms", [
+            _part("Boom L", 0.5 * mb["booms"]),
+            _part("Boom R", 0.5 * mb["booms"]),
+        ]),
+        _group("mppts", "MPPTs", [
+            _part(f"MPPT {i + 1}" if n_m > 1 else "MPPT", m_mppt)
+            for i in range(n_m)
+        ]),
+        _group("batteries", "Batteries", [
+            _part(f"Pack {i + 1}" if n_p > 1 else "Pack", m_pack)
+            for i in range(n_p)
+        ]),
+        _group("motors", "Motors", [
+            _part(f"{mot_name} L", 0.5 * mb["motors"]),
+            _part(f"{mot_name} R", 0.5 * mb["motors"]),
+        ]),
+        _group("props", "Props", [
+            _part(f"{prop_name} L", 0.5 * mb["props"]),
+            _part(f"{prop_name} R", 0.5 * mb["props"]),
+        ]),
+        _group("fixed", "Fixed", [
+            _part(k.replace("_", " "), v)
+            for k, v in config.FIXED_MASSES_KG.items()
+        ]),
+    ]
+    return groups
+
+
 def combine_total(components: dict) -> dict:
     m = mx = my = mz = 0.0
     for c in components.values():
@@ -121,12 +201,11 @@ def mass_model(design: Design) -> dict:
             "category": cat,
         }
 
+    n_wing, n_h = _cell_counts(design)
+    cell_kg = config.CELL_MASS_KG + config.CELL_INTERCONNECT_MASS_KG
     add("Wing", "structure",
-        _box_mp(mb["wing"], c, b, t_w, 0.40 * c, 0.0, 0.0),
+        _box_mp(mb["wing"] + n_wing * cell_kg, c, b, t_w, 0.40 * c, 0.0, 0.0),
         "box", [c, b, t_w], False)
-    add("Solar cells", "solar",
-        _box_mp(mb["solar_cells"], c * 0.9, b * 0.7, 0.004, 0.40 * c, 0.0, 0.02),
-        "box", [c * 0.5, b * 0.4, 0.004], False)
     n_m = max(1, int(design.n_mppts))
     m_each = mb["mppts"] / n_m
     y_mp = (np.linspace(-0.35 * b, 0.35 * b, n_m)
@@ -137,7 +216,8 @@ def mass_model(design: Design) -> dict:
             _box_mp(m_each, 0.06, 0.08, 0.025, 0.18 * c, float(y), -0.03),
             "box", [0.06, 0.08, 0.025], True)
     add("H-stab", "structure",
-        _box_mp(mb["hstab"], design.hstab_chord, design.hstab_span, t_t, x_h, 0.0, z_h),
+        _box_mp(mb["hstab"] + n_h * cell_kg, design.hstab_chord, design.hstab_span, t_t,
+                x_h, 0.0, z_h),
         "box", [design.hstab_chord, design.hstab_span, t_t], False)
     add("V-stab L", "structure",
         _box_mp(0.5 * mb["vstabs"], design.vstab_chord, t_t, design.vstab_height,
@@ -192,12 +272,31 @@ def mass_model(design: Design) -> dict:
         "box", [0.16, 2 * fuse_r, 2 * fuse_r], True)
 
     total = combine_total(components)
+    groups = mass_groups(design)
+    part_breakdown = {
+        "Wing": next(g["parts"] for g in groups if g["id"] == "wing"),
+        "H-stab": next(g["parts"] for g in groups if g["id"] == "hstab"),
+        "V-stab L": [_part("Structure", 0.5 * mb["vstabs"])],
+        "V-stab R": [_part("Structure", 0.5 * mb["vstabs"])],
+        "Boom L": [_part("Tube", 0.5 * mb["booms"])],
+        "Boom R": [_part("Tube", 0.5 * mb["booms"])],
+        "Avionics L": [
+            _part(k.replace("_", " ") + " (½)", 0.5 * v)
+            for k, v in config.FIXED_MASSES_KG.items()
+        ],
+        "Avionics R": [
+            _part(k.replace("_", " ") + " (½)", 0.5 * v)
+            for k, v in config.FIXED_MASSES_KG.items()
+        ],
+    }
     return {
         "components": components,
         "positions": positions,
         "total": total,
         "x_c4": x_c4,
-        "breakdown": {k: float(v) for k, v in mb.items()},
+        "groups": groups,
+        "breakdown": {g["id"]: g["mass"] for g in groups},
+        "part_breakdown": part_breakdown,
         "fixed_breakdown": {k: float(v) for k, v in config.FIXED_MASSES_KG.items()},
     }
 

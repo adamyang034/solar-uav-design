@@ -87,6 +87,17 @@
   .views button { padding: 3px 8px; font-size: 11px; }
   .cat { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint);
          margin: 8px 0 2px; }
+  .cat-drop { margin: 6px 0 2px; }
+  .cat-drop > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between;
+    align-items: baseline; gap: 8px; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--faint); padding: 2px 0; }
+  .cat-drop > summary::-webkit-details-marker { display: none; }
+  .cat-drop > summary::before { content: "▸"; display: inline-block; width: 0.9em; color: var(--faint); }
+  .cat-drop[open] > summary::before { content: "▾"; }
+  .part-drop { margin: 0; }
+  .part-drop > summary { list-style: none; cursor: pointer; }
+  .part-drop > summary::-webkit-details-marker { display: none; }
+  .el-sub { padding: 1px 0 1px 18px; font-size: 11px; color: var(--muted); }
   .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
   .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; font-size: 11px; color: var(--muted); margin-top: 6px; }
   table.cmp { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -94,6 +105,10 @@
   table.cmp th:first-child, table.cmp td:first-child { text-align: left; }
   table.cmp input { width: 72px; background: var(--card-2); color: var(--ink); border: 1px solid var(--border);
                     border-radius: 4px; padding: 2px 4px; text-align: right; }
+  table.cmp tr.grp td:first-child { cursor: pointer; user-select: none; }
+  table.cmp tr.grp td:first-child .tog { display: inline-block; width: 1em; color: var(--faint); }
+  table.cmp tr.part td { color: var(--muted); font-size: 12px; }
+  table.cmp tr.part td:first-child { padding-left: 22px; }
   .delta.up { color: var(--bad); } .delta.dn { color: var(--ok); }
   .chart { height: 320px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
   .chart.tall { height: 420px; }
@@ -287,17 +302,18 @@ function plotTime(e) {
 
 (function geometry() {
   const el = document.getElementById("geometry");
-  const br = DATA.mass.breakdown;
-  const keys = Object.keys(br).sort((a, b) => br[b] - br[a]);
+  const groups = DATA.mass.groups || [];
+  const br = {};
+  groups.forEach(g => { br[g.id] = g.mass; });
+  const keys = groups.map(g => g.id).sort((a, b) => br[b] - br[a]);
+  const byId = Object.fromEntries(groups.map(g => [g.id, g]));
   const palette = ["#4a90e2","#e74c3c","#27ae60","#e67e22","#f1c40f","#9b59b6","#1abc9c","#e91e63","#8b7355","#3498db"];
-  const labels = { wing:"Wing", hstab:"H-stab", vstabs:"V-stabs", booms:"Booms", solar_cells:"Solar",
-    mppts:"MPPTs", batteries:"Batteries", motors:"Motors", props:"Props", fixed:"Fixed" };
   el.innerHTML = `
     <div class="grid2">
       <div class="chart tall"><canvas id="massChart"></canvas></div>
       <div>
         <h2>Expected vs as-built</h2>
-        <p class="note">As-built lives in this browser only. It does not change the energy march or CAD CG.</p>
+        <p class="note">Wing and H-stab totals include their solar cells. Open a row for constituents. As-built lives in this browser only — it does not change the energy march or CAD CG.</p>
         <div id="massTable"></div>
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
           <button id="addBuild">Add build</button>
@@ -312,6 +328,7 @@ function plotTime(e) {
   const storeKey = "av-builds";
   let builds = [];
   try { builds = JSON.parse(localStorage.getItem(storeKey) || "[]"); } catch (e) { builds = []; }
+  const open = new Set();
 
   function renderTable() {
     const one = builds.length === 1;
@@ -321,8 +338,10 @@ function plotTime(e) {
     html += "</tr></thead><tbody>";
     let expTot = 0, buildTots = builds.map(() => 0);
     keys.forEach(k => {
+      const g = byId[k];
       expTot += br[k];
-      html += `<tr><td>${labels[k] || k}</td><td>${br[k].toFixed(3)}</td>`;
+      const hasParts = g && g.parts && g.parts.length > 1;
+      html += `<tr class="grp" data-k="${k}"><td>${hasParts ? `<span class="tog">${open.has(k) ? "▾" : "▸"}</span>` : ""}${g ? g.label : k}</td><td>${br[k].toFixed(3)}</td>`;
       builds.forEach((b, i) => {
         const v = +(b.masses[k] ?? br[k]);
         buildTots[i] += v;
@@ -336,6 +355,14 @@ function plotTime(e) {
         html += `<td class="${cls}">${dlt >= 0 ? "+" : ""}${dlt.toFixed(3)} (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)</td>`;
       }
       html += "</tr>";
+      if (hasParts && open.has(k)) {
+        g.parts.forEach(p => {
+          html += `<tr class="part"><td>${p.label}</td><td>${p.mass.toFixed(3)}</td>`;
+          builds.forEach(() => { html += "<td></td>"; });
+          if (one) html += "<td></td>";
+          html += "</tr>";
+        });
+      }
     });
     html += `<tr><td><b>Total</b></td><td><b>${expTot.toFixed(3)}</b></td>`;
     builds.forEach((_, i) => { html += `<td><b>${buildTots[i].toFixed(3)}</b></td>`; });
@@ -353,6 +380,14 @@ function plotTime(e) {
     document.querySelectorAll("#massTable th[data-bn]").forEach(th => {
       th.onblur = () => { builds[+th.dataset.bn].name = th.textContent.trim() || "Build"; drawChart(); };
     });
+    document.querySelectorAll("#massTable tr.grp").forEach(tr => {
+      tr.querySelector("td").onclick = e => {
+        if (e.target.closest("input")) return;
+        const k = tr.dataset.k;
+        if (open.has(k)) open.delete(k); else open.add(k);
+        renderTable();
+      };
+    });
   }
 
   let chart;
@@ -360,7 +395,7 @@ function plotTime(e) {
     const c = chartColors();
     const ctx = document.getElementById("massChart");
     const datasets = keys.map((k, i) => ({
-      label: labels[k] || k,
+      label: (byId[k] && byId[k].label) || k,
       data: [br[k], ...builds.map(b => +b.masses[k] || 0)],
       backgroundColor: palette[i % palette.length],
     }));
@@ -397,8 +432,8 @@ function plotTime(e) {
     document.getElementById("buildMsg").textContent = "Cleared.";
     renderTable(); drawChart();
   };
-  document.addEventListener("av-theme", drawChart);
   renderTable(); drawChart();
+  document.addEventListener("av-theme", drawChart);
 })();
 
 (function power() {
@@ -702,9 +737,9 @@ const layout = {};
 try { Object.assign(layout, JSON.parse(localStorage.getItem(layoutKey) || "{}")); } catch (e) {}
 const colors = DATA.colors;
 const D = DATA.dims;
-const CAT_ORDER = ["battery", "avionics", "propulsion", "solar", "structure"];
-const CAT_LABEL = { battery: "Battery", avionics: "Avionics", propulsion: "Propulsion", solar: "Solar", structure: "Structure" };
-const SKIP = new Set(["Wing","H-stab","V-stab L","V-stab R","Boom L","Boom R","Solar cells","Prop L","Prop R"]);
+const CAT_ORDER = ["battery", "avionics", "propulsion", "structure"];
+const CAT_LABEL = { battery: "Battery", avionics: "Avionics", propulsion: "Propulsion", structure: "Structure" };
+const SKIP = new Set(["Wing","H-stab","V-stab L","V-stab R","Boom L","Boom R","Prop L","Prop R"]);
 
 const stage = document.getElementById("stage");
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -1023,21 +1058,52 @@ function renderList() {
     if (ca !== cb) return ca - cb;
     return cur.components[b].mass - cur.components[a].mass;
   });
-  let html = "", last = "";
+  const byCat = {};
   names.forEach(n => {
     const cat = mp0.positions[n].category;
-    if (cat !== last) { html += `<div class="cat">${CAT_LABEL[cat] || cat}</div>`; last = cat; }
-    const c = cur.components[n], p = mp0.positions[n];
-    const col = colors[p.category] || "#888";
-    const on = selected === n ? " on" : "";
-    html += `<button class="el${on}" data-n="${n}">
-      <div class="row"><span class="m"><span class="swatch" style="background:${col}"></span>${n}${p.draggable ? " ↔" : ""}</span>
-      <span class="mono">${c.mass.toFixed(3)} <span class="m">${(100*c.mass/tot).toFixed(0)}%</span></span></div>
-      <div class="bar"><i style="width:${100*c.mass/max}%;background:${col}"></i></div>
-    </button>`;
+    (byCat[cat] ||= []).push(n);
+  });
+  const partsOf = mp0.part_breakdown || {};
+  let html = "";
+  CAT_ORDER.forEach(cat => {
+    const ns = byCat[cat];
+    if (!ns || !ns.length) return;
+    const catMass = ns.reduce((s, n) => s + cur.components[n].mass, 0);
+    html += `<details class="cat-drop" open><summary><span>${CAT_LABEL[cat] || cat}</span><span class="mono">${catMass.toFixed(3)} kg</span></summary>`;
+    if (cat === "avionics" && mp0.fixed_breakdown) {
+      html += `<details class="part-drop"><summary class="el-sub">Fixed constituents</summary>`;
+      Object.entries(mp0.fixed_breakdown).forEach(([k, v]) => {
+        html += `<div class="el-sub row"><span>${k.replaceAll("_", " ")}</span><span class="mono">${Number(v).toFixed(3)}</span></div>`;
+      });
+      html += `</details>`;
+    }
+    ns.forEach(n => {
+      const c = cur.components[n], p = mp0.positions[n];
+      const col = colors[p.category] || "#888";
+      const on = selected === n ? " on" : "";
+      const head = `<div class="row"><span class="m"><span class="swatch" style="background:${col}"></span>${n}${p.draggable ? " ↔" : ""}</span>
+        <span class="mono">${c.mass.toFixed(3)} <span class="m">${(100*c.mass/tot).toFixed(0)}%</span></span></div>
+        <div class="bar"><i style="width:${100*c.mass/max}%;background:${col}"></i></div>`;
+      const parts = partsOf[n];
+      if (parts && parts.length > 1) {
+        html += `<details class="part-drop"><summary class="el${on}" data-n="${n}">${head}</summary>`;
+        parts.forEach(q => {
+          html += `<div class="el-sub row"><span>${q.label}</span><span class="mono">${q.mass.toFixed(3)}</span></div>`;
+        });
+        html += `</details>`;
+      } else {
+        html += `<button class="el${on}" data-n="${n}">${head}</button>`;
+      }
+    });
+    html += `</details>`;
   });
   document.getElementById("elist").innerHTML = html;
-  document.querySelectorAll("#elist .el").forEach(btn => btn.onclick = () => select(btn.dataset.n === selected ? null : btn.dataset.n));
+  document.querySelectorAll("#elist [data-n]").forEach(el => {
+    el.addEventListener("click", e => {
+      e.stopPropagation();
+      select(el.dataset.n === selected ? null : el.dataset.n);
+    });
+  });
   document.getElementById("ehint").textContent = selected
     ? (mp0.positions[selected].draggable ? "Drag the arrows. Red = CG, blue = wing c/4." : "Fixed by geometry.")
     : "Click a ↔ part (or its box) to move it. Skin stays put.";
