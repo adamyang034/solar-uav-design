@@ -45,7 +45,9 @@ Mojave desert. Twin-boom, OV-10-style configuration, 6 m span / 12 kg limits.
   lab data.
 - **CAD visualizer**: `solar_uav/cad.py` builds the twin-boom solid
   (AeroSandbox mesh + solar cells + props), writes STL / OpenSCAD, a
-  three-view drawing, and `outputs/aircraft_viewer.html`.
+  three-view drawing, and `outputs/aircraft_viewer.html`. The three-layout
+  compare view (π-tail, split empennage, conventional) is
+  `outputs/compare/aircraft_viewer.html` and is what GitHub Pages serves.
 
 ```bash
 .venv/bin/python scripts/validate_all.py    # Phases 1–2

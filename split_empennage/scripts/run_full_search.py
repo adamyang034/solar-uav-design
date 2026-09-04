@@ -69,16 +69,16 @@ def main():
     print("  Failure modes:")
     print(df["reason"].value_counts().head(8).to_string())
     cols = ["span_m", "chord_m", "tail_arm_m", "boom_spacing_m",
-            "n_cells", "prop", "mass_kg", "margin_wh", "soc_min",
+            "n_packs", "n_cells", "prop", "mass_kg", "margin_wh", "soc_min",
             "p_night_w", "closed"]
     print("  Top 5 by margin:")
     print(df[cols].head(5).to_string(index=False))
     w = optimize.winner(df)
     print("  Winner:")
     show = ["span_m", "chord_m", "tail_arm_m", "boom_spacing_m",
-            "taper_ratio", "string_plan", "n_cells", "prop", "motor",
-            "mass_kg", "margin_wh", "soc_min", "p_night_w", "climb_ms",
-            "closed", "reason"]
+            "taper_ratio", "string_plan", "n_packs", "n_cells", "prop", "motor",
+            "mass_kg", "margin_wh", "soc_min", "soc_end", "cycle_wh",
+            "p_night_w", "climb_ms", "closed", "reason"]
     show = [c for c in show if c in w.index]
     print(w[show].to_string())
     if smoke:

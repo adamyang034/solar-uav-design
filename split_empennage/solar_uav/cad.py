@@ -4,9 +4,10 @@ Builds an AeroSandbox solid (wing, two T-tails, pods, booms), plus
 wing solar-cell patches and tractor prop disks. Exports:
 
   * binary STL (structure mesh)
+  * simple-geometry STEP (boxes / tubes, millimetres)
   * OpenSCAD source (lofted airfoils + cylinders)
-  * self-contained Three.js HTML viewer (dimensions + mass bars)
-  * annotated matplotlib three-view and mass bar chart
+  * self-contained AircraftView HTML (3D + specs + energy + planform)
+  * annotated matplotlib three-view
 """
 
 from __future__ import annotations
@@ -24,8 +25,10 @@ import numpy as np
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 from . import config
-from .aircraft import BOOM_DIAMETER_M, Design, reference_design
+from .aircraft import (BOOM_DIAMETER_M, Design, G,
+                       reference_design)
 from .components import solar_array
+from .step_export import write_step
 
 IN_TO_M = 0.0254
 
@@ -292,6 +295,8 @@ module naca_tail(span, chord, pts) {{
             scale([chord, chord]) polygon(points=pts);
 }}
 
+// (split empennage — V-stab is a simple extrude from z=0 to vstab_height)
+
 module nacelle(y) {{
     translate([{x_prop:.4f}, y, 0])
         rotate([0, 90, 0])
@@ -335,12 +340,129 @@ for (s = [-1, 1]) {{
     return path
 
 
+def _clock_hod(hod: float) -> str:
+    """Local clock `HH:MM` from a fractional hour-of-day."""
+    h = float(hod) % 24.0
+    hh = int(np.floor(h + 1e-9))
+    mm = int(round((h - hh) * 60.0))
+    if mm >= 60:
+        hh, mm = (hh + 1) % 24, 0
+    return f"{hh:02d}:{mm:02d}"
+
+
+def _soc_setpoints(r, e_tot: float) -> list[dict]:
+    """Launch / dawn / 20% floor / next-dusk charge states for the HUD card."""
+    soc = np.asarray(r.soc_trace, dtype=float)
+    hours = np.asarray(r.hours, dtype=float)
+    if soc.size == 0:
+        return []
+    i_min = int(np.argmin(soc))
+    hod_min = (float(r.start_hour) + float(hours[i_min])) % 24.0
+    floor = float(config.SOC_MIN)
+    start_h = float(r.start_hour)
+    return [
+        {"id": "launch", "label": "Launch (full)",
+         "clock": _clock_hod(start_h), "soc": 1.0, "wh": e_tot,
+         "note": "ground charge"},
+        {"id": "dawn", "label": "Dawn (min)",
+         "clock": _clock_hod(hod_min), "soc": float(r.soc_min),
+         "wh": float(r.soc_min) * e_tot, "note": "worst point"},
+        {"id": "floor", "label": "20% floor",
+         "clock": "", "soc": floor, "wh": floor * e_tot,
+         "note": "must stay above"},
+        {"id": "dusk", "label": "Next dusk",
+         "clock": _clock_hod(start_h), "soc": float(r.soc_end),
+         "wh": float(r.soc_end) * e_tot, "note": "loop end"},
+    ]
+
+
+def mission_snapshot(design: Design) -> dict:
+    """24 h energy march on this airplane, for the CAD HUD. Empty if no prop."""
+    if not design.prop_name:
+        return {}
+    from . import environment
+    from .components.motor import drive_for
+    from .components.propulsion import PropulsionSystem, load_prop
+    from .mission import display_trace, simulate
+    try:
+        psys = PropulsionSystem(
+            prop=load_prop(design.prop_name),
+            motor=drive_for(design.motor_name))
+        env = environment.design_day(config.SOLSTICE_DATE)
+        r = simulate(design, env, psys)
+        tr = display_trace(design, env, psys, start_hod=8.0, duration_h=60.0)
+    except Exception:
+        return {}
+    e_tot = float(design.n_packs * config.PACK_ENERGY_WH)
+    from .viewer_data import attach_traces
+    snap = {
+        "margin_wh": float(r.margin_wh),
+        "reserve_wh": float((r.soc_min - config.SOC_MIN) * e_tot),
+        "cycle_wh": float(r.cycle_wh),
+        "soc_min": float(r.soc_min),
+        "soc_start": float(r.soc_start),
+        "soc_end": float(r.soc_end),
+        "unmet_wh": float(r.unmet_wh),
+        "spilled_wh": float(r.spilled_wh),
+        "solar_wh": float(r.solar_wh),
+        "propulsion_wh": float(r.propulsion_wh),
+        "avionics_wh": float(r.avionics_wh),
+        "p_night_w": float(r.p_night_w),
+        "p_day_w": float(r.p_day_w),
+        "closed": bool(r.closed),
+        "pack_wh": e_tot,
+        "usable_wh": e_tot * (1.0 - config.SOC_MIN),
+        "reason": str(r.reason),
+        "climb_ms": float(r.climb_ms),
+        "battery_night_h": float(r.battery_night_h),
+        "v_night_ms": float(r.v_night),
+        "soc_floor": float(config.SOC_MIN),
+        "start_clock": _clock_hod(r.start_hour),
+        "setpoints": _soc_setpoints(r, e_tot),
+    }
+    return attach_traces(snap, tr if tr is not None else r)
+
+
+def drag_snapshot(design: Design, v_ms: float | None = None) -> dict:
+    """Night-cruise drag budget for the CAD HUD. Same V as the energy march."""
+    v = float(design.min_power_speed() if v_ms is None else v_ms)
+    b = design.drag_breakdown(v_ms=v)
+    d_tot = float(b["drag_total_n"])
+    m = float(b["mass_kg"])
+    return {
+        "v_ms": float(b["v_ms"]),
+        "rho": float(b["rho"]),
+        "q_pa": float(b["q_pa"]),
+        "mass_kg": m,
+        "cl_net": float(b["cl_net"]),
+        "cl_wing": float(b["cl_wing"]),
+        "cl_hstab": float(b["cl_hstab"]),
+        "cd_wingref": float(b["cd_wingref"]),
+        "ld": float(m * G / max(d_tot, 1e-12)),
+        "drag_total_n": d_tot,
+        "power_aero_w": float(b["power_aero_w"]),
+        "re_wing": float(b["re_wing"]),
+        "parts_n": {k: float(val) for k, val in b["drag_n"].items()},
+    }
+
+
+def _json_default(o):
+    if isinstance(o, np.generic):
+        return o.item()
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    raise TypeError(type(o).__name__)
+
+
 def write_html(design: Design, path: Path,
                structure: tuple[np.ndarray, np.ndarray],
                cells: tuple[np.ndarray, np.ndarray],
-               props: tuple[np.ndarray, np.ndarray]) -> Path:
-    """Self-contained Three.js orbit viewer with the mesh embedded as STL-b64."""
+               props: tuple[np.ndarray, np.ndarray],
+               energy: dict | None = None,
+               drag: dict | None = None) -> Path:
+    """Self-contained AircraftView HTML (Three.js + tabs). Meshes as STL-b64."""
     import tempfile
+    from .viewer_data import payload as viewer_payload
     chunks = {}
     for key, mesh in (("structure", structure), ("cells", cells), ("props", props)):
         with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as tmp:
@@ -348,20 +470,21 @@ def write_html(design: Design, path: Path,
         write_stl(tmp_path, mesh[0], mesh[1], name=key)
         chunks[key] = base64.b64encode(tmp_path.read_bytes()).decode("ascii")
         tmp_path.unlink(missing_ok=True)
-    dims = design.dimension_report()
-    mb = {k: float(v) for k, v in dims.get("mass_breakdown_kg", {}).items()}
-    dims["mass_breakdown_kg"] = mb
-    dims["fixed_breakdown_kg"] = {k: float(v) for k, v in config.FIXED_MASSES_KG.items()}
-    html = _HTML_TEMPLATE.replace("__STRUCT_B64__", chunks["structure"])
-    html = html.replace("__CELLS_B64__", chunks["cells"])
-    html = html.replace("__PROPS_B64__", chunks["props"])
-    html = html.replace("__DIMS_JSON__", json.dumps(dims, indent=2))
-    html = html.replace("__TITLE__", (
-        f"Split-empennage solar UAV  {design.span_m:.2f} m × {design.chord_m:.2f} m  "
-        f"({design.n_cells} cells)"))
+    energy = energy if energy is not None else mission_snapshot(design)
+    drag = drag if drag is not None else drag_snapshot(design)
+    data = viewer_payload(design, energy, drag)
+    title = data["title"]
+    template = Path(__file__).with_name("aircraft_view.html").read_text(encoding="utf-8")
+    html = (template
+            .replace("__TITLE__", title)
+            .replace("__PAYLOAD_JSON__", json.dumps(
+                data, separators=(",", ":"), default=_json_default))
+            .replace("__STRUCT_B64__", chunks["structure"])
+            .replace("__CELLS_B64__", chunks["cells"])
+            .replace("__PROPS_B64__", chunks["props"]))
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(html)
+    path.write_text(html, encoding="utf-8")
     return path
 
 
@@ -454,214 +577,24 @@ def export_all(design: Design | None = None,
     cells = mesh_cells(d)
     props = mesh_props(d)
     all_pts, all_faces = _stack([structure, cells, props])
+    energy = mission_snapshot(d)
+    v_night = energy.get("v_night_ms")
+    drag = drag_snapshot(d, v_ms=v_night)
     paths = {
         "stl": write_stl(out / "aircraft.stl", all_pts, all_faces),
         "stl_structure": write_stl(out / "aircraft_structure.stl", *structure),
+        "step": write_step(d, out / "aircraft.step"),
         "scad": write_scad(d, out / "aircraft.scad"),
-        "html": write_html(d, out / "aircraft_viewer.html", structure, cells, props),
+        "html": write_html(d, out / "aircraft_viewer.html", structure, cells, props,
+                           energy=energy, drag=drag),
         "three_view": three_view(d, structure, cells, out / "aircraft_three_view.png"),
         "mass": write_mass_png(d, out / "aircraft_mass.png"),
         "dims": out / "aircraft_dimensions.json",
     }
     report = d.dimension_report()
     report["mass_breakdown_kg"] = {k: float(v) for k, v in report["mass_breakdown_kg"].items()}
+    report["fixed_breakdown_kg"] = {k: float(v) for k, v in config.FIXED_MASSES_KG.items()}
+    report["energy"] = energy
+    report["drag"] = drag
     paths["dims"].write_text(json.dumps(report, indent=2))
     return {k: str(v) for k, v in paths.items()}
-
-
-_HTML_TEMPLATE = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<title>__TITLE__</title>
-<style>
-  html, body { margin: 0; height: 100%; background: #1b1d21; color: #e8eaed;
-               font-family: ui-sans-serif, system-ui, sans-serif; }
-  #c { display: block; width: 100%; height: 100%; }
-  #hud { position: absolute; top: 16px; left: 16px; max-width: 340px;
-         background: #25282e; border: 1px solid #3a3f46; padding: 12px 14px;
-         font-size: 12px; line-height: 1.45; }
-  #hud h1 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
-  #hud table { border-collapse: collapse; width: 100%; }
-  #hud td { padding: 1px 6px 1px 0; color: #c4c7cc; }
-  #hud td.v { text-align: right; color: #f1f3f4; font-variant-numeric: tabular-nums; }
-  #mass { position: absolute; top: 16px; right: 16px; width: 280px;
-         background: #25282e; border: 1px solid #3a3f46; padding: 12px 14px;
-         font-size: 12px; line-height: 1.4; max-height: calc(100% - 48px);
-         overflow: auto; }
-  #mass h1 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
-  #mass .row { display: grid; grid-template-columns: 92px 1fr 70px;
-               gap: 6px; align-items: center; margin: 3px 0; }
-  #mass .row.sub { grid-template-columns: 92px 1fr 70px; padding-left: 8px;
-                   color: #9aa0a6; font-size: 11px; }
-  #mass .lab { color: #c4c7cc; overflow: hidden; text-overflow: ellipsis; }
-  #mass .bar { height: 8px; background: #1b1d21; border: 1px solid #3a3f46; }
-  #mass .bar > i { display: block; height: 100%; background: #8ab4f8; }
-  #mass .row.sub .bar > i { background: #5f7a9b; }
-  #mass .kg { text-align: right; color: #f1f3f4; font-variant-numeric: tabular-nums; }
-  #hint { position: absolute; bottom: 12px; right: 16px; color: #9aa0a6; font-size: 11px; }
-</style>
-</head>
-<body>
-<canvas id="c"></canvas>
-<div id="hud">
-  <h1>__TITLE__</h1>
-  <table id="dims"></table>
-</div>
-<div id="mass">
-  <h1 id="mass-title">Mass</h1>
-  <div id="mass-rows"></div>
-</div>
-<div id="hint">drag to orbit · scroll to zoom · right-drag to pan</div>
-<script type="importmap">
-{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
-            "three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
-</script>
-<script type="module">
-import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-
-const DIMS = __DIMS_JSON__;
-const rows = [
-  ["Span", DIMS.span_m.toFixed(2) + " m"],
-  ["Chord root / tip", DIMS.chord_m.toFixed(2) + " / " + (DIMS.tip_chord_m || DIMS.chord_m).toFixed(2) + " m"],
-  ["Taper start", (DIMS.y_taper_m || 0).toFixed(2) + " m from CL"],
-  ["Wing area / AR", DIMS.wing_area_m2.toFixed(2) + " m² / " + DIMS.aspect_ratio.toFixed(1)],
-  ["Tail arm", DIMS.tail_arm_m.toFixed(2) + " m"],
-  ["Motor", DIMS.motor_name || ""],
-  ["Prop", (DIMS.prop_name || "") + "  " + (DIMS.prop_diameter_in || 0).toFixed(1) + " in"],
-  ["H-stab (each)", DIMS.hstab_span_m.toFixed(2) + " × " + DIMS.hstab_chord_m.toFixed(2) + " m  (2 T-tails)"],
-  ["V_H / SM", (DIMS.tail_volume_h || 0).toFixed(3) + " / " + (DIMS.static_margin || 0).toFixed(3)],
-  ["V_V / Cn_β (not constrained)", (DIMS.tail_volume_v || 0).toFixed(3) + " / " + (DIMS.cn_beta || 0).toFixed(3)],
-  ["Boom spacing", DIMS.boom_spacing_m.toFixed(2) + " m"],
-  ["Boom (wing TE→V-stab TE)", DIMS.boom_length_m.toFixed(2) + " m"],
-  ["Fuselage (prop→wing TE)", (DIMS.fuselage_length_m || 0).toFixed(2) + " m"],
-  ["Prop ahead of LE", DIMS.prop_le_offset_m.toFixed(2) + " m"],
-  ["V-stab", DIMS.vstab_height_m.toFixed(2) + " × " + DIMS.vstab_chord_m.toFixed(2) + " m"],
-  ["Aileron y_in / span", (DIMS.aileron_y_inner_m || 0).toFixed(2) + " / " + (DIMS.aileron_span_each_m || 0).toFixed(2) + " m"],
-  ["Roll rate", (DIMS.roll_rate_deg_s || 0).toFixed(1) + " deg/s"],
-  ["H-stab height", DIMS.hstab_z_m.toFixed(2) + " m (on fin tips, no π-bridge)"],
-  ["Wing incidence", (DIMS.incidence_wing_deg || 0).toFixed(2) + " deg"],
-  ["H-stab incidence", (DIMS.incidence_hstab_deg || 0).toFixed(2) + " deg"],
-  ["Cells", (DIMS.string_plan || (DIMS.n_strings + " × " + DIMS.cells_per_string)) + " = " + DIMS.n_cells],
-  ["Packs", String(DIMS.n_packs)],
-  ["Mass", DIMS.mass_kg.toFixed(2) + " kg"],
-  ["Vstall / Vmin", DIMS.v_stall_ms.toFixed(1) + " / " + DIMS.v_min_ms.toFixed(1) + " m/s"],
-];
-document.getElementById("dims").innerHTML = rows.map(
-  ([k,v]) => `<tr><td>${k}</td><td class="v">${v}</td></tr>`).join("");
-
-(function renderMass() {
-  const mb = DIMS.mass_breakdown_kg || {};
-  const fixed = DIMS.fixed_breakdown_kg || {};
-  const items = Object.entries(mb).sort((a, b) => b[1] - a[1]);
-  const total = items.reduce((s, [, v]) => s + v, 0) || 1;
-  const max = items.length ? items[0][1] : 1;
-  document.getElementById("mass-title").textContent =
-    "Mass  " + total.toFixed(2) + " kg";
-  const label = (k) => k.replace(/_/g, " ");
-  const row = (k, v, sub) => {
-    const pct = 100 * v / total;
-    const w = 100 * v / max;
-    return `<div class="row${sub ? " sub" : ""}">
-      <div class="lab">${label(k)}</div>
-      <div class="bar"><i style="width:${w.toFixed(1)}%"></i></div>
-      <div class="kg">${v.toFixed(2)} ${pct.toFixed(0)}%</div>
-    </div>`;
-  };
-  let html = items.map(([k, v]) => row(k, v, false)).join("");
-  const fixedItems = Object.entries(fixed).sort((a, b) => b[1] - a[1]);
-  if (fixedItems.length) {
-    html += `<div style="margin:8px 0 4px;color:#9aa0a6;font-size:11px">fixed (includes fuselages)</div>`;
-    html += fixedItems.map(([k, v]) => row(k, v, true)).join("");
-  }
-  document.getElementById("mass-rows").innerHTML = html;
-})();
-
-function parseSTL(b64) {
-  const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-  const n = new DataView(bin.buffer).getUint32(80, true);
-  const pos = new Float32Array(n * 9);
-  let o = 84, p = 0;
-  for (let i = 0; i < n; i++) {
-    o += 12; // skip normal
-    for (let k = 0; k < 9; k++, p++, o += 4) pos[p] = new DataView(bin.buffer).getFloat32(o, true);
-    o += 2;
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  g.computeVertexNormals();
-  return g;
-}
-
-const canvas = document.getElementById("c");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1b1d21);
-const camera = new THREE.PerspectiveCamera(40, 2, 0.05, 40);
-camera.up.set(0, 1, 0);
-camera.position.set(1.2, 5.5, 4.2);
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0.25, 0.12, 0);
-controls.update();
-
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-const key = new THREE.DirectionalLight(0xffffff, 0.85);
-key.position.set(2, 6, 4);
-scene.add(key);
-const fill = new THREE.DirectionalLight(0x88aacc, 0.35);
-fill.position.set(-4, 1, -2);
-scene.add(fill);
-
-const grid = new THREE.GridHelper(8, 16, 0x3a3f46, 0x2a2e34);
-grid.position.y = -0.45;
-scene.add(grid);
-
-// AeroSandbox / aircraft axes: x aft, y span, z up. Three.js y is up, so remap.
-function acToThree(geom) {
-  const m = new THREE.Matrix4().set(
-    1,0,0,0,
-    0,0,1,0,
-    0,1,0,0,
-    0,0,0,1
-  );
-  geom.applyMatrix4(m);
-  return geom;
-}
-
-const struct = new THREE.Mesh(
-  acToThree(parseSTL("__STRUCT_B64__")),
-  new THREE.MeshStandardMaterial({ color: 0xc8ccd0, metalness: 0.05, roughness: 0.55 })
-);
-scene.add(struct);
-const cells = new THREE.Mesh(
-  acToThree(parseSTL("__CELLS_B64__")),
-  new THREE.MeshStandardMaterial({
-    color: 0x2f5f8a, metalness: 0.2, roughness: 0.4,
-    side: THREE.DoubleSide,
-    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
-  })
-);
-scene.add(cells);
-const props = new THREE.Mesh(
-  acToThree(parseSTL("__PROPS_B64__")),
-  new THREE.MeshStandardMaterial({ color: 0x4a4e54, metalness: 0.1, roughness: 0.7, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
-);
-scene.add(props);
-
-function resize() {
-  const w = canvas.clientWidth, h = canvas.clientHeight;
-  renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-}
-function tick() {
-  resize();
-  renderer.render(scene, camera);
-  requestAnimationFrame(tick);
-}
-tick();
-</script>
-</body>
-</html>
-"""

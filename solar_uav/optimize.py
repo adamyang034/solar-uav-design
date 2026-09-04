@@ -11,6 +11,8 @@ are a discrete inner pick (lowest night bus that still climbs).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -246,6 +248,7 @@ def search(env: pd.DataFrame | None = None,
     rows = []
     n_eval = 0
     n_skip = 0
+    best_holder: list = [None]
     for span in spans:
         for chord in chords:
             for lt in tails:
@@ -395,6 +398,8 @@ def search(env: pd.DataFrame | None = None,
                                             "closed": mres.closed,
                                             "reason": mres.reason,
                                         })
+                                        _maybe_write_winner_step(
+                                            d, rows[-1], best_holder, verbose)
                                         if verbose and n_eval % 25 == 0:
                                             print(f"  evaluated {n_eval} "
                                                   f"(skipped {n_skip}) ...",
@@ -407,7 +412,11 @@ def search(env: pd.DataFrame | None = None,
         return pd.DataFrame()
     df = pd.DataFrame(rows)
     df = df.sort_values(["closed", "margin_wh"], ascending=[False, False])
-    return df.reset_index(drop=True)
+    df = df.reset_index(drop=True)
+    w = winner(df)
+    if w is not None:
+        write_winner_step(design_from_row(w))
+    return df
 
 
 def winner(df: pd.DataFrame) -> pd.Series | None:
@@ -416,6 +425,39 @@ def winner(df: pd.DataFrame) -> pd.Series | None:
     closed = df[df["closed"]]
     pool = closed if len(closed) else df
     return pool.iloc[0]
+
+
+def _is_better_winner(row, prev) -> bool:
+    if prev is None:
+        return True
+    c_new, c_old = bool(row["closed"]), bool(prev["closed"])
+    if c_new != c_old:
+        return c_new
+    return float(row["margin_wh"]) > float(prev["margin_wh"]) + 1e-9
+
+
+def write_winner_step(design: Design, path: Path | None = None) -> Path | None:
+    """Overwrite outputs/aircraft.step with this airplane's simple OML."""
+    from .step_export import write_step
+    out = path or (Path(__file__).resolve().parents[1] / "outputs" / "aircraft.step")
+    try:
+        return write_step(design, out)
+    except Exception as exc:
+        print(f"  STEP write failed: {exc}", flush=True)
+        return None
+
+
+def _maybe_write_winner_step(design: Design, row, best_holder: list,
+                             verbose: bool = True) -> None:
+    if not _is_better_winner(row, best_holder[0]):
+        return
+    best_holder[0] = row
+    path = write_winner_step(design)
+    if verbose and path is not None:
+        print(f"  new best STEP  {path}  "
+              f"{float(row['margin_wh']):.1f} Wh  "
+              f"{float(row['span_m']):.2f}×{float(row['chord_m']):.2f} m",
+              flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +648,7 @@ def search_continuous(env: pd.DataFrame | None = None,
     rows: list[dict] = []
     n_eval = 0
     n_skip = 0
+    best_holder: list = [None]
 
     if verbose:
         print("  Continuous aero search (differential evolution)", flush=True)
@@ -647,6 +690,7 @@ def search_continuous(env: pd.DataFrame | None = None,
                 seen.add(k)
                 rows.append(row)
                 n_eval += 1
+                _maybe_write_winner_step(d, row, best_holder, verbose)
                 if verbose and n_eval % 10 == 0:
                     best = max(r["margin_wh"] for r in rows)
                     print(f"  evaluated {n_eval} (skipped {n_skip})  "
@@ -667,5 +711,9 @@ def search_continuous(env: pd.DataFrame | None = None,
         return pd.DataFrame()
     df = pd.DataFrame(rows)
     df = df.sort_values(["closed", "margin_wh"], ascending=[False, False])
-    return df.reset_index(drop=True)
+    df = df.reset_index(drop=True)
+    w = winner(df)
+    if w is not None:
+        write_winner_step(design_from_row(w))
+    return df
 

@@ -1,9 +1,9 @@
-"""Export / refresh the conventional CAD visualizer.
+"""Export / refresh AircraftView for the conventional winner.
 
 Usage:  .venv/bin/python conventional/scripts/visualize.py
 
 Uses the Phase 4 winner when `outputs/phase4_candidates.csv` exists.
-Serves the Three.js viewer at http://127.0.0.1:8101/  (ES modules will not
+Serves AircraftView at http://127.0.0.1:8101/  (ES modules will not
 load from a file:// page). Reuses the server if it is already running.
 """
 

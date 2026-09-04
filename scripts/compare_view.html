@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>__TITLE__</title>
+<script src="lib/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #14161a; --ink: #e8eaed; --muted: #9aa0a6; --faint: #6b7076;
+    --card: #1e2228; --card-2: #2a2f36; --border: #3a3f46;
+    --accent: #8ab4f8; --ok: #81c995; --warn: #fdd663; --bad: #f28b82;
+    --hl: #f59e0b;
+  }
+  html.light {
+    --bg: #f4f5f7; --ink: #1f2328; --muted: #5f6368; --faint: #80868b;
+    --card: #ffffff; --card-2: #eef0f3; --border: #d0d4d9;
+    --accent: #1a73e8; --ok: #137333; --warn: #b06000; --bad: #c5221f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+               font: 13px/1.45 ui-sans-serif, system-ui, sans-serif; }
+  #app { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+  header { display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+           border-bottom: 1px solid var(--border); background: var(--bg); flex-wrap: wrap; }
+  header .brand { font-weight: 650; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .grow { flex: 1; }
+  button, .tab { background: var(--card); color: var(--ink); border: 1px solid var(--border);
+                 border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; }
+  button:hover, .tab:hover { background: var(--card-2); }
+  button.primary { background: var(--accent); color: #0b0d10; border-color: transparent; font-weight: 600; }
+  html.light button.primary { color: #fff; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.icon { padding: 5px 8px; display: inline-flex; align-items: center; }
+  #tabs { display: flex; gap: 4px; padding: 8px 14px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .tab { border-radius: 6px 6px 0 0; border-bottom: none; padding: 7px 12px; color: var(--muted); }
+  .tab.on { background: var(--card-2); color: var(--ink); font-weight: 600; }
+  main { flex: 1; min-height: 0; position: relative; }
+  .pane { display: none; height: 100%; }
+  .pane.on { display: flex; flex-direction: column; }
+  /* Keep the WebGL canvas laid out while other tabs are open. */
+  #pane-view {
+    display: flex !important; position: absolute; inset: 0; z-index: 0;
+    visibility: hidden; pointer-events: none;
+  }
+  #pane-view.on { visibility: visible; pointer-events: auto; z-index: 1; }
+  .scroll { flex: 1; min-height: 0; overflow: auto; padding: 16px 18px 28px; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px 28px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 28px; align-items: start; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+  h2 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+       margin: 0 0 8px; font-weight: 650; }
+  h3 { font-size: 13px; margin: 0 0 8px; }
+  dl { margin: 0; }
+  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0;
+        border-bottom: 1px solid var(--border); }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+  .hero { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .stat .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .stat .l { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .stat.ok .v { color: var(--ok); } .stat.bad .v { color: var(--bad); } .stat.warn .v { color: var(--warn); }
+  #view3d { flex: 1; min-height: 0; display: flex; }
+  #stage { position: relative; flex: 1; min-width: 0; background: var(--bg); }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  .overlay { position: absolute; top: 10px; max-height: calc(100% - 20px); overflow: auto;
+             display: flex; flex-direction: column; gap: 8px; width: 240px; }
+  .overlay.left { left: 10px; } .overlay.right { right: 10px; width: 272px; }
+  .panel { background: color-mix(in srgb, var(--card) 92%, transparent);
+           border: 1px solid var(--border); border-radius: 8px; }
+  .panel > button.head { width: 100%; display: flex; justify-content: space-between;
+                         background: none; border: 0; border-radius: 8px 8px 0 0; padding: 8px 10px; }
+  .panel .body { padding: 0 10px 10px; }
+  .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 2px 0; }
+  .row .m { color: var(--muted); }
+  .mono { font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; background: var(--card-2); border-radius: 3px; overflow: hidden; margin-top: 2px; }
+  .bar > i { display: block; height: 100%; }
+  .el { width: 100%; text-align: left; background: none; border: 0; border-radius: 4px; padding: 4px; }
+  .el.on { background: var(--card-2); }
+  .hint { color: var(--faint); font-size: 11px; margin-top: 6px; }
+  .chk { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; }
+  input[type=range] { width: 100%; }
+  .views { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .views button { padding: 3px 8px; font-size: 11px; }
+  .cat { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint);
+         margin: 8px 0 2px; }
+  .cat-drop { margin: 6px 0 2px; }
+  .cat-drop > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between;
+    align-items: baseline; gap: 8px; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--faint); padding: 2px 0; }
+  .cat-drop > summary::-webkit-details-marker { display: none; }
+  .cat-drop > summary::before { content: "▸"; display: inline-block; width: 0.9em; color: var(--faint); }
+  .cat-drop[open] > summary::before { content: "▾"; }
+  .part-drop { margin: 0; }
+  .part-drop > summary { list-style: none; cursor: pointer; }
+  .part-drop > summary::-webkit-details-marker { display: none; }
+  .el-sub { padding: 1px 0 1px 18px; font-size: 11px; color: var(--muted); }
+  .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+  .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  table.cmp { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  table.cmp th, table.cmp td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  table.cmp th:first-child, table.cmp td:first-child { text-align: left; }
+  table.cmp input { width: 72px; background: var(--card-2); color: var(--ink); border: 1px solid var(--border);
+                    border-radius: 4px; padding: 2px 4px; text-align: right; }
+  table.cmp tr.grp td:first-child { cursor: pointer; user-select: none; }
+  table.cmp tr.grp td:first-child .tog { display: inline-block; width: 1em; color: var(--faint); }
+  table.cmp tr.part td { color: var(--muted); font-size: 12px; }
+  table.cmp tr.part td:first-child { padding-left: 22px; }
+  .delta.up { color: var(--bad); } .delta.dn { color: var(--ok); }
+  .chart { height: 320px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+  .chart.tall { height: 420px; }
+  .chart.spark { height: 120px; margin-top: 12px; }
+  svg.foil, svg.plan { width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+  .note { font-size: 12px; color: var(--muted); margin: 8px 0 12px; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 650; }
+  .badge.ok { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
+  .badge.bad { background: color-mix(in srgb, var(--bad) 20%, transparent); color: var(--bad); }
+  .key { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin: 8px 0 12px; }
+  .key i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 4px;
+           vertical-align: -1px; }
+  header select {
+    background: var(--card); color: var(--ink); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 10px; font: inherit; min-width: 200px;
+  }
+  table.side { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  table.side th, table.side td { padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: right; }
+  table.side th:first-child, table.side td:first-child { text-align: left; color: var(--muted); }
+  table.side th { color: var(--ink); font-weight: 650; }
+  table.side tr.sec td { padding-top: 16px; font-size: 11px; letter-spacing: 0.08em;
+                         text-transform: uppercase; color: var(--muted); font-weight: 650; text-align: left; }
+  table.side td.best { color: var(--ok); font-weight: 650; }
+  table.side td.worst { color: var(--bad); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>
+      </svg>
+      AircraftView
+    </div>
+    <select id="cfg-select" aria-label="Configuration"></select>
+    <div class="sub" id="hdr-sub"></div>
+    <span id="hdr-badge"></span>
+    <div class="grow"></div>
+    <button id="btn-dl">Download</button>
+    <button id="btn-theme" class="icon" title="Toggle theme" aria-label="Toggle theme"></button>
+  </header>
+  <nav id="tabs"></nav>
+  <main>
+    <section class="pane on" id="pane-view">
+      <div id="view3d">
+        <div id="stage"></div>
+        <div class="overlay left" id="ov-left"></div>
+        <div class="overlay right" id="ov-right"></div>
+      </div>
+    </section>
+    <section class="pane" id="pane-overview"><div class="scroll" id="overview"></div></section>
+    <section class="pane" id="pane-geometry"><div class="scroll" id="geometry"></div></section>
+    <section class="pane" id="pane-power"><div class="scroll" id="power"></div></section>
+    <section class="pane" id="pane-shapes"><div class="scroll" id="shapes"></div></section>
+    <section class="pane" id="pane-compare"><div class="scroll" id="compare"></div></section>
+  </main>
+</div>
+<script>
+const CONFIGS = __CONFIGS_JSON__;
+const CFG_ORDER = Object.keys(CONFIGS);
+const _savedCfg = sessionStorage.getItem("av-cfg");
+const currentCfg = (CONFIGS[_savedCfg] && _savedCfg) || CFG_ORDER[0];
+const DATA = CONFIGS[currentCfg].payload;
+const MESH = CONFIGS[currentCfg];
+window.CONFIGS = CONFIGS;
+window.DATA = DATA;
+window.MESH = MESH;
+window.currentCfg = currentCfg;
+</script>
+<script>
+const MOON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+const SUN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+
+(function theme() {
+  const light = localStorage.getItem("av-theme") === "light";
+  document.documentElement.classList.toggle("light", light);
+  const btn = document.getElementById("btn-theme");
+  const paint = () => { btn.innerHTML = document.documentElement.classList.contains("light") ? MOON : SUN; };
+  paint();
+  btn.onclick = () => {
+    const on = document.documentElement.classList.toggle("light");
+    localStorage.setItem("av-theme", on ? "light" : "dark");
+    paint();
+    document.dispatchEvent(new Event("av-theme"));
+  };
+})();
+
+const TABS = [
+  ["view", "AircraftView"],
+  ["overview", "Overview"],
+  ["geometry", "Geometry & Mass"],
+  ["power", "Power"],
+  ["shapes", "Airfoils & Planform"],
+  ["compare", "Compare"],
+];
+const nav = document.getElementById("tabs");
+TABS.forEach(([id, lab], i) => {
+  const b = document.createElement("button");
+  b.className = "tab" + (i === 0 ? " on" : "");
+  b.textContent = lab;
+    b.onclick = () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("on"));
+    document.querySelectorAll(".pane").forEach(p => p.classList.remove("on"));
+    b.classList.add("on");
+    document.getElementById("pane-" + id).classList.add("on");
+    sessionStorage.setItem("av-tab", id);
+    window.dispatchEvent(new Event("resize"));
+    if (typeof Chart !== "undefined") {
+      document.querySelectorAll("canvas").forEach(cv => {
+        const ch = Chart.getChart(cv);
+        if (ch) ch.resize();
+      });
+    }
+  };
+  nav.appendChild(b);
+});
+(function restoreTab() {
+  const want = sessionStorage.getItem("av-tab");
+  if (!want) return;
+  const btn = [...document.querySelectorAll(".tab")].find(t => t.textContent &&
+    TABS.find(([id, lab]) => lab === t.textContent && id === want));
+  if (btn) btn.click();
+})();
+
+(function cfgSelect() {
+  const sel = document.getElementById("cfg-select");
+  CFG_ORDER.forEach(id => {
+    const o = document.createElement("option");
+    o.value = id;
+    o.textContent = CONFIGS[id].label;
+    if (id === currentCfg) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = () => {
+    sessionStorage.setItem("av-cfg", sel.value);
+    location.reload();
+  };
+})();
+
+document.getElementById("hdr-sub").textContent = DATA.name;
+const closed = !!(DATA.energy && DATA.energy.closed);
+const badge = document.getElementById("hdr-badge");
+badge.className = "badge " + (closed ? "ok" : "bad");
+badge.textContent = closed
+  ? ("CLOSED  +" + (DATA.energy.margin_wh || 0).toFixed(1) + " Wh")
+  : "OPEN";
+
+function kvList(rows) {
+  return "<dl>" + rows.map(([k, v]) =>
+    `<div class="kv"><dt>${k}</dt><dd>${v}</dd></div>`).join("") + "</dl>";
+}
+function sectionsHtml(tab) {
+  return (tab.sections || []).map(s =>
+    `<div><h2>${s.title}</h2>${kvList(s.rows)}</div>`).join("");
+}
+function chartColors() {
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    ink: cs.getPropertyValue("--ink").trim(),
+    muted: cs.getPropertyValue("--muted").trim(),
+    grid: "rgba(128,128,128,0.18)",
+    ok: cs.getPropertyValue("--ok").trim(),
+    bad: cs.getPropertyValue("--bad").trim(),
+    warn: cs.getPropertyValue("--warn").trim(),
+    accent: cs.getPropertyValue("--accent").trim(),
+    hl: cs.getPropertyValue("--hl").trim(),
+  };
+}
+function plotTime(e) {
+  const start = Number(e.plot_start_hod ?? 8);
+  const dur = Number(e.plot_duration_h ?? 60);
+  const clock = (h, minutes) => {
+    const abs = start + h;
+    const day = Math.max(0, Math.floor((abs + 1e-9) / 24));
+    let hod = abs - 24 * day;
+    if (hod < 0) hod += 24;
+    const hh = Math.floor(hod + 1e-9) % 24;
+    const mm = Math.round((hod - Math.floor(hod + 1e-9)) * 60) % 60;
+    const pad = n => String(n).padStart(2, "0");
+    return minutes ? `Day ${day + 1} ${pad(hh)}:${pad(mm)}` : `Day ${day + 1} ${pad(hh)}:00`;
+  };
+  const xy = (xs, ys) => xs.map((h, i) => ({ x: h, y: ys[i] }));
+  const xScale = (c, opts) => ({
+    type: "linear", min: 0, max: dur,
+    title: { display: true, text: "From 8:00 AM takeoff", color: c.muted },
+    ticks: { color: c.muted, stepSize: 12, maxRotation: 0, callback: v => clock(v, false) },
+    grid: { color: c.grid },
+    ...(opts || {}),
+  });
+  return { start, dur, clock, xy, xScale };
+}
+
+(function overview() {
+  const e = DATA.energy || {}, d = DATA.dims || {}, dr = DATA.drag || {};
+  const m = DATA.mass.total.mass;
+  const el = document.getElementById("overview");
+  el.innerHTML = `
+    <div class="hero">
+      <div class="stat"><div class="v">${m.toFixed(2)} kg</div><div class="l">Mass</div></div>
+      <div class="stat ${closed ? "ok" : "bad"}"><div class="v">${closed ? "Closed" : "Open"}</div>
+        <div class="l">${(e.margin_wh >= 0 ? "+" : "") + (e.margin_wh || 0).toFixed(1)} Wh above 20%</div></div>
+      <div class="stat warn"><div class="v">${(100 * (e.soc_min || 0)).toFixed(1)}%</div><div class="l">Dawn SOC</div></div>
+      <div class="stat"><div class="v">${d.n_cells}</div><div class="l">${d.string_plan} cells</div></div>
+      <div class="stat"><div class="v">${d.n_packs}</div><div class="l">Packs · ${(e.pack_wh || 0).toFixed(0)} Wh</div></div>
+      <div class="stat"><div class="v">${(e.p_night_w || 0).toFixed(1)} W</div><div class="l">Night bus</div></div>
+      <div class="stat"><div class="v">${(dr.ld || 0).toFixed(1)}</div><div class="l">Night L/D</div></div>
+    </div>
+    <p class="note">This is the reference airplane (REF), not a search CSV. Design day is solstice clear-sky at El Mirage. Shoulder watts decide closure — noon spill (${(e.spilled_wh||0).toFixed(1)} Wh) does not.</p>
+    <h2>SOC from 8:00 AM · 2.5 days</h2>
+    <div class="chart spark"><canvas id="sparkSoc"></canvas></div>
+    <div class="grid3" style="margin-top:22px">${sectionsHtml(DATA.specs.find(s => s.id === "overview") || {sections:[]})}</div>`;
+  const hours = e.hours || [], soc = e.soc || [], floor = e.soc_floor || 0.2;
+  const pt = plotTime(e);
+  function drawSpark() {
+    const c = chartColors();
+    const ctx = document.getElementById("sparkSoc");
+    if (!ctx || typeof Chart === "undefined") return;
+    if (drawSpark.chart) drawSpark.chart.destroy();
+    drawSpark.chart = new Chart(ctx, {
+      type: "line",
+      data: { datasets: [
+          { data: pt.xy(hours, soc.map(s => 100 * s)), borderColor: c.accent, backgroundColor: c.accent + "22",
+            fill: true, pointRadius: 0, borderWidth: 1.5, tension: 0.25 },
+          { data: [{x: 0, y: 100 * floor}, {x: pt.dur, y: 100 * floor}], borderColor: c.bad, pointRadius: 0, borderWidth: 1, borderDash: [4, 4] },
+        ] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: {
+          x: pt.xScale(c, { title: { display: false }, ticks: { color: c.muted, stepSize: 12, maxRotation: 0, callback: v => pt.clock(v, false) } }),
+          y: { min: 0, max: 100, ticks: { color: c.muted, callback: v => v + "%" }, grid: { color: c.grid } },
+        },
+      },
+    });
+  }
+  document.addEventListener("av-theme", drawSpark);
+  drawSpark();
+})();
+
+(function geometry() {
+  const el = document.getElementById("geometry");
+  const groups = DATA.mass.groups || [];
+  const br = {};
+  groups.forEach(g => { br[g.id] = g.mass; });
+  const keys = groups.map(g => g.id).sort((a, b) => br[b] - br[a]);
+  const byId = Object.fromEntries(groups.map(g => [g.id, g]));
+  const palette = ["#4a90e2","#e74c3c","#27ae60","#e67e22","#f1c40f","#9b59b6","#1abc9c","#e91e63","#8b7355","#3498db"];
+  el.innerHTML = `
+    <div class="grid2">
+      <div class="chart tall"><canvas id="massChart"></canvas></div>
+      <div>
+        <h2>Expected vs as-built</h2>
+        <p class="note">Wing and H-stab totals include their solar cells. Open a row for constituents. As-built lives in this browser only — it does not change the energy march or CAD CG.</p>
+        <div id="massTable"></div>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <button id="addBuild">Add build</button>
+          <button id="saveBuild" class="primary">Save locally</button>
+          <button id="clearBuild">Clear</button>
+        </div>
+        <div class="hint" id="buildMsg"></div>
+      </div>
+    </div>
+    <div class="grid3" style="margin-top:22px">${sectionsHtml(DATA.specs.find(s => s.id === "geometry") || {sections:[]})}</div>`;
+
+  const storeKey = "av-builds";
+  let builds = [];
+  try { builds = JSON.parse(localStorage.getItem(storeKey) || "[]"); } catch (e) { builds = []; }
+  const open = new Set();
+
+  function renderTable() {
+    const one = builds.length === 1;
+    let html = "<table class='cmp'><thead><tr><th>Component</th><th>Expected</th>";
+    builds.forEach((b, i) => { html += `<th contenteditable data-bn="${i}">${b.name}</th>`; });
+    if (one) html += "<th>Δ / %</th>";
+    html += "</tr></thead><tbody>";
+    let expTot = 0, buildTots = builds.map(() => 0);
+    keys.forEach(k => {
+      const g = byId[k];
+      expTot += br[k];
+      const hasParts = g && g.parts && g.parts.length > 1;
+      html += `<tr class="grp" data-k="${k}"><td>${hasParts ? `<span class="tog">${open.has(k) ? "▾" : "▸"}</span>` : ""}${g ? g.label : k}</td><td>${br[k].toFixed(3)}</td>`;
+      builds.forEach((b, i) => {
+        const v = +(b.masses[k] ?? br[k]);
+        buildTots[i] += v;
+        html += `<td><input data-bi="${i}" data-k="${k}" value="${v.toFixed(3)}"></td>`;
+      });
+      if (one) {
+        const v = +(builds[0].masses[k] ?? br[k]);
+        const dlt = v - br[k];
+        const pct = br[k] ? (100 * dlt / br[k]) : 0;
+        const cls = Math.abs(dlt) < 1e-6 ? "" : (dlt > 0 ? "delta up" : "delta dn");
+        html += `<td class="${cls}">${dlt >= 0 ? "+" : ""}${dlt.toFixed(3)} (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)</td>`;
+      }
+      html += "</tr>";
+      if (hasParts && open.has(k)) {
+        g.parts.forEach(p => {
+          html += `<tr class="part"><td>${p.label}</td><td>${p.mass.toFixed(3)}</td>`;
+          builds.forEach(() => { html += "<td></td>"; });
+          if (one) html += "<td></td>";
+          html += "</tr>";
+        });
+      }
+    });
+    html += `<tr><td><b>Total</b></td><td><b>${expTot.toFixed(3)}</b></td>`;
+    builds.forEach((_, i) => { html += `<td><b>${buildTots[i].toFixed(3)}</b></td>`; });
+    if (one) {
+      const dlt = buildTots[0] - expTot;
+      const pct = expTot ? (100 * dlt / expTot) : 0;
+      const cls = Math.abs(dlt) < 1e-6 ? "" : (dlt > 0 ? "delta up" : "delta dn");
+      html += `<td class="${cls}"><b>${dlt >= 0 ? "+" : ""}${dlt.toFixed(3)} (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)</b></td>`;
+    }
+    html += "</tr></tbody></table>";
+    document.getElementById("massTable").innerHTML = html;
+    document.querySelectorAll("#massTable input").forEach(inp => {
+      inp.onchange = () => { builds[+inp.dataset.bi].masses[inp.dataset.k] = +inp.value; renderTable(); drawChart(); };
+    });
+    document.querySelectorAll("#massTable th[data-bn]").forEach(th => {
+      th.onblur = () => { builds[+th.dataset.bn].name = th.textContent.trim() || "Build"; drawChart(); };
+    });
+    document.querySelectorAll("#massTable tr.grp").forEach(tr => {
+      tr.querySelector("td").onclick = e => {
+        if (e.target.closest("input")) return;
+        const k = tr.dataset.k;
+        if (open.has(k)) open.delete(k); else open.add(k);
+        renderTable();
+      };
+    });
+  }
+
+  let chart;
+  function drawChart() {
+    const c = chartColors();
+    const ctx = document.getElementById("massChart");
+    const datasets = keys.map((k, i) => ({
+      label: (byId[k] && byId[k].label) || k,
+      data: [br[k], ...builds.map(b => +b.masses[k] || 0)],
+      backgroundColor: palette[i % palette.length],
+    }));
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
+      type: "bar",
+      data: { labels: ["Expected", ...builds.map(b => b.name)], datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { stacked: true, ticks: { color: c.muted }, grid: { display: false } },
+          y: { stacked: true, beginAtZero: true, title: { display: true, text: "Mass (kg)", color: c.muted },
+               ticks: { color: c.muted }, grid: { color: c.grid } },
+        },
+        plugins: {
+          legend: { position: "bottom", labels: { color: c.ink, boxWidth: 10, font: { size: 10 } } },
+          title: { display: true, text: "Mass stack — expected vs as-built", color: c.ink },
+          tooltip: { callbacks: { label: x => `${x.dataset.label}: ${(x.raw || 0).toFixed(3)} kg` } },
+        },
+      },
+    });
+  }
+  document.getElementById("addBuild").onclick = () => {
+    builds.push({ name: "Build " + (builds.length + 1), masses: { ...br } });
+    renderTable(); drawChart();
+  };
+  document.getElementById("saveBuild").onclick = () => {
+    localStorage.setItem(storeKey, JSON.stringify(builds));
+    document.getElementById("buildMsg").textContent = "Saved in this browser.";
+  };
+  document.getElementById("clearBuild").onclick = () => {
+    builds = [];
+    localStorage.removeItem(storeKey);
+    document.getElementById("buildMsg").textContent = "Cleared.";
+    renderTable(); drawChart();
+  };
+  renderTable(); drawChart();
+  document.addEventListener("av-theme", drawChart);
+})();
+
+(function power() {
+  const e = DATA.energy || {};
+  const el = document.getElementById("power");
+  el.innerHTML = `
+    <div class="grid2">
+      <div class="chart"><canvas id="socChart"></canvas></div>
+      <div class="chart"><canvas id="pwrChart"></canvas></div>
+    </div>
+    <p class="note">Display march: 100% SOC at 8:00 AM, then 2.5 repeating solstice days (to 8:00 PM on day 3). Closure numbers below are still the scored day-2 loop. Grey SOC = array dark. Amber = min SOC in this window. Shoulder watts decide closure, not noon spill (${(e.spilled_wh||0).toFixed(1)} Wh spilled).</p>
+    <div class="grid3" style="margin-top:18px">${sectionsHtml(DATA.specs.find(s => s.id === "power") || {sections:[]})}</div>`;
+  const hours = e.hours || [];
+  const soc = e.soc || [];
+  const solar = e.p_solar || [];
+  const load = e.p_load || [];
+  const floor = e.soc_floor || 0.2;
+  const pt = plotTime(e);
+  let iMin = 0;
+  soc.forEach((s, i) => { if (s < soc[iMin]) iMin = i; });
+  let socChart, pwrChart;
+  function draw() {
+    const c = chartColors();
+    const tip = {
+      callbacks: {
+        title: items => items.length ? pt.clock(items[0].parsed.x, true) : "",
+      },
+    };
+    const common = {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: { labels: { color: c.ink } }, tooltip: tip },
+    };
+    if (socChart) socChart.destroy();
+    socChart = new Chart(document.getElementById("socChart"), {
+      type: "line",
+      data: { datasets: [
+          { label: "SOC", data: pt.xy(hours, soc.map(s => 100 * s)), borderColor: c.accent,
+            backgroundColor: c.accent + "22", fill: true, pointRadius: 0, borderWidth: 2, tension: 0.2,
+            segment: { borderColor: ctx => (solar[ctx.p0DataIndex] || 0) < 1 ? c.muted : c.accent } },
+          { label: "20% floor", data: [{x: 0, y: 100 * floor}, {x: pt.dur, y: 100 * floor}], borderColor: c.bad,
+            pointRadius: 0, borderWidth: 1, borderDash: [6, 4] },
+          { label: "Min SOC", data: (iMin >= 0 && hours[iMin] != null) ? [{x: hours[iMin], y: 100 * soc[iMin]}] : [],
+            borderColor: c.hl, backgroundColor: c.hl, pointRadius: 5, showLine: false },
+        ] },
+      options: { ...common, plugins: { ...common.plugins, title: { display: true, text: "Battery SOC · 2.5 days from 8:00 AM", color: c.ink } },
+                  scales: { x: pt.xScale(c), y: { ticks: { color: c.muted }, grid: { color: c.grid }, title: { display: true, text: "SOC %", color: c.muted }, suggestedMin: 0, suggestedMax: 100 } } },
+    });
+    if (pwrChart) pwrChart.destroy();
+    pwrChart = new Chart(document.getElementById("pwrChart"), {
+      type: "line",
+      data: { datasets: [
+          { label: "Solar to bus", data: pt.xy(hours, solar), borderColor: c.ok, backgroundColor: c.ok + "22",
+            fill: true, pointRadius: 0, borderWidth: 2, tension: 0.2 },
+          { label: "Load", data: pt.xy(hours, load), borderColor: c.warn, pointRadius: 0, borderWidth: 2, tension: 0.2 },
+        ] },
+      options: { ...common, plugins: { ...common.plugins, title: { display: true, text: "Power · 2.5 days from 8:00 AM", color: c.ink } },
+                  scales: { x: pt.xScale(c), y: { ticks: { color: c.muted }, grid: { color: c.grid }, title: { display: true, text: "W", color: c.muted }, beginAtZero: true } } },
+    });
+  }
+  document.addEventListener("av-theme", draw);
+  draw();
+})();
+
+(function shapes() {
+  const el = document.getElementById("shapes");
+  const d = DATA.dims;
+  const cells = DATA.cells || [];
+  const nStraddle = cells.filter(c => c.straddle).length;
+  el.innerHTML = `
+    <p class="note">${nStraddle} of ${cells.length} cells straddle the aileron hinge (x = ${(0.75*d.chord_m).toFixed(3)} m). Amber = hinge keep-out if the aileron is a full-depth plain flap. Split (lower-surface only) ailerons can keep the upper skin rigid.</p>
+    <div class="key">
+      <span><i style="background:#3d6d99"></i>Cell</span>
+      <span><i style="background:var(--hl)"></i>Hinge-straddling cell</span>
+      <span><i style="background:color-mix(in srgb, var(--hl) 35%, transparent)"></i>Aileron bay</span>
+    </div>
+    <h2>Aircraft dimensions</h2>
+    ${kvList([
+      ["Wingspan", d.span_m.toFixed(3)+" m"],
+      ["Root / tip chord", d.chord_m.toFixed(3)+" / "+d.tip_chord_m.toFixed(3)+" m"],
+      ["H-stab", d.hstab_span_m.toFixed(3)+" × "+d.hstab_chord_m.toFixed(3)+" m"],
+      ["V-stab", d.vstab_height_m.toFixed(3)+" × "+d.vstab_chord_m.toFixed(3)+" m"],
+      ["Boom", d.boom_length_m.toFixed(3)+" m  Ø"+(d.boom_diameter_mm||0).toFixed(0)+" mm"],
+      ["Boom Y", (d.boom_spacing_m/2).toFixed(3)+" m"],
+      ["Fuselage", (d.fuselage_length_m||0).toFixed(3)+" × Ø"+((d.fuselage_radius_m||0)*2000).toFixed(0)+" mm"],
+      ["Aileron each", (d.aileron_span_each_m||0).toFixed(3)+" m  from y="+(d.aileron_y_inner_m||0).toFixed(2)],
+    ])}
+    <div id="planTop"></div>
+    <div id="planSide"></div>
+    <h2 style="margin-top:28px">Sections</h2>
+    <div class="grid2" id="foils"></div>`;
+
+  (DATA.airfoils || []).forEach(f => {
+    const xs = f.coords.map(p => p[0]), ys = f.coords.map(p => p[1]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const W = 640, H = 200, pad = 24;
+    const s = Math.min((W-2*pad)/(maxX-minX||1), (H-2*pad)/(maxY-minY||1));
+    const tx = x => pad + (x - minX) * s;
+    const ty = y => H/2 - (y - (minY+maxY)/2) * s;
+    const path = f.coords.map((p,i) => `${i?"L":"M"}${tx(p[0]).toFixed(1)},${ty(p[1]).toFixed(1)}`).join(" ") + " Z";
+    const c4 = tx(minX + 0.25 * (maxX - minX));
+    const box = document.createElement("div");
+    box.innerHTML = `<h2>${f.surface} — ${f.name}</h2>
+      <svg class="foil" viewBox="0 0 ${W} ${H}">
+        <line x1="${tx(minX)}" y1="${ty(0)}" x2="${tx(maxX)}" y2="${ty(0)}" stroke="var(--border)" stroke-dasharray="4 4"/>
+        <line x1="${c4}" y1="${ty(minY)}" x2="${c4}" y2="${ty(maxY)}" stroke="var(--accent)" stroke-dasharray="3 3" opacity="0.7"/>
+        <path d="${path}" fill="var(--card-2)" stroke="var(--ink)" stroke-width="1.5"/>
+        <text x="${c4+4}" y="${pad-4}" fill="var(--accent)" font-size="11">c/4</text>
+      </svg>`;
+    document.getElementById("foils").appendChild(box);
+  });
+
+  function drawPlan(hostId, title, items, dims, flipV, scale, W) {
+    const host = document.getElementById(hostId);
+    const xs = [], ys = [];
+    const push = (x,y) => { xs.push(x); ys.push(y); };
+    items.forEach(it => {
+      if (it.t === "poly") it.pts.forEach(p => push(p[0], p[1]));
+      if (it.t === "rect") { push(it.x, it.y); push(it.x+it.w, it.y+it.h); }
+      if (it.t === "line") { push(it.x1, it.y1); push(it.x2, it.y2); }
+    });
+    dims.forEach(dm => {
+      push(dm.x1, dm.y1); push(dm.x2, dm.y2); push(dm.lx, dm.ly);
+      if (dm.ex1 != null) { push(dm.ex1, dm.ey1); push(dm.ex2, dm.ey2); }
+    });
+    const xmin = Math.min(...xs), xmax = Math.max(...xs);
+    const ymin = Math.min(...ys), ymax = Math.max(...ys);
+    const m = 64;
+    const contentW = (xmax - xmin) * scale;
+    const offX = Math.max(m, (W - contentW) / 2);
+    const H = (ymax - ymin) * scale + 2 * m;
+    const tx = x => offX + (x - xmin) * scale;
+    const ty = y => flipV ? (m + (y - ymin) * scale) : (H - m - (y - ymin) * scale);
+    let hover = -1;
+    function svg() {
+      const body = items.map(it => {
+        if (it.t === "poly") {
+          const p = it.pts.map(pt => `${tx(pt[0]).toFixed(1)},${ty(pt[1]).toFixed(1)}`).join(" ");
+          return `<polygon points="${p}" fill="${it.fill || "var(--card-2)"}" stroke="${it.stroke || "var(--ink)"}" stroke-width="1.4"/>`;
+        }
+        if (it.t === "rect") {
+          const y0 = Math.min(ty(it.y), ty(it.y+it.h));
+          return `<rect x="${tx(it.x)}" y="${y0}" width="${Math.abs(it.w*scale)}" height="${Math.abs(it.h*scale)}" fill="${it.fill || "var(--card-2)"}" stroke="${it.stroke || "var(--ink)"}"/>`;
+        }
+        if (it.t === "line") return `<line x1="${tx(it.x1)}" y1="${ty(it.y1)}" x2="${tx(it.x2)}" y2="${ty(it.y2)}" stroke="${it.dash ? "var(--faint)" : (it.stroke || "var(--muted)")}" stroke-dasharray="${it.dash ? "6 4" : "none"}" stroke-width="${it.w || 1.4}"/>`;
+        return "";
+      }).join("");
+      const dimLines = dims.map((dm, i) => {
+        const on = hover === i;
+        const col = on ? "var(--hl)" : "var(--muted)";
+        const edge = (dm.ex1 != null && on)
+          ? `<line x1="${tx(dm.ex1)}" y1="${ty(dm.ey1)}" x2="${tx(dm.ex2)}" y2="${ty(dm.ey2)}" stroke="var(--hl)" stroke-width="4"/>`
+          : "";
+        return `<g data-i="${i}" style="cursor:default">
+          ${edge}
+          <line x1="${tx(dm.x1)}" y1="${ty(dm.y1)}" x2="${tx(dm.x2)}" y2="${ty(dm.y2)}" stroke="${col}" stroke-width="${on?2:1}"/>
+          <text x="${tx(dm.lx)}" y="${ty(dm.ly)}" fill="${col}" font-size="12" font-variant="tabular-nums" text-anchor="${dm.anchor||"middle"}">${dm.text}</text>
+          <line x1="${tx(dm.x1)}" y1="${ty(dm.y1)}" x2="${tx(dm.x2)}" y2="${ty(dm.y2)}" stroke="transparent" stroke-width="16"/>
+        </g>`;
+      }).join("");
+      host.innerHTML = `<h2 style="margin-top:18px">${title}</h2>
+        <svg class="plan" viewBox="0 0 ${W} ${H}">${body}${dimLines}</svg>`;
+      host.querySelectorAll("[data-i]").forEach(g => {
+        g.onmouseenter = () => { hover = +g.dataset.i; svg(); };
+        g.onmouseleave = () => { hover = -1; svg(); };
+      });
+    }
+    svg();
+  }
+
+  const b = d.span_m, c = d.chord_m, ct = d.tip_chord_m, by = d.boom_spacing_m/2, bl = d.boom_length_m;
+  const hs = d.hstab_span_m, hc = d.hstab_chord_m, hx = (d.hstab_le_x_m != null) ? d.hstab_le_x_m : (d.hstab_te_x_m - hc);
+  const yail = d.aileron_y_inner_m, cf = d.aileron_chord_frac, hinge = (1-cf)*c;
+  const yTap = d.y_taper_m;
+  const tapered = Math.abs((ct / c) - 1) > 0.02;
+  const wingPoly = tapered
+    ? [[-b/2, 0],[b/2, 0],[b/2, ct],[yTap, c],[-yTap, c],[-b/2, ct]]
+    : [[-b/2, 0],[b/2, 0],[b/2, c],[-b/2, c]];
+  const topItems = [
+    { t: "poly", pts: wingPoly, fill: "color-mix(in srgb, var(--ink) 8%, var(--card))" },
+    { t: "rect", x: -hs/2, y: hx, w: hs, h: hc, fill: "color-mix(in srgb, var(--ink) 6%, var(--card))" },
+    { t: "line", x1: -by, y1: 0.25*c, x2: -by, y2: bl, dash: true },
+    { t: "line", x1: by, y1: 0.25*c, x2: by, y2: bl, dash: true },
+    { t: "line", x1: -b/2, y1: hinge, x2: b/2, y2: hinge, stroke: "var(--hl)", w: 1.6 },
+    { t: "rect", x: yail, y: hinge, w: b/2 - yail, h: c - hinge, fill: "color-mix(in srgb, var(--hl) 18%, transparent)", stroke: "none" },
+    { t: "rect", x: -b/2, y: hinge, w: b/2 - yail, h: c - hinge, fill: "color-mix(in srgb, var(--hl) 18%, transparent)", stroke: "none" },
+  ];
+  cells.filter(cl => cl.bay !== "hstab").forEach(cl => {
+    topItems.push({ t: "rect", x: cl.y0, y: cl.x0, w: cl.y1-cl.y0, h: cl.x1-cl.x0,
+      fill: cl.straddle ? "color-mix(in srgb, var(--hl) 55%, transparent)" : "#3d6d99",
+      stroke: cl.straddle ? "var(--hl)" : "#2a4d6e" });
+  });
+  cells.filter(cl => cl.bay === "hstab").forEach(cl => {
+    topItems.push({ t: "rect", x: cl.y0, y: hx + cl.x0, w: cl.y1-cl.y0, h: cl.x1-cl.x0,
+      fill: "#3d6d99", stroke: "#2a4d6e" });
+  });
+  const vh = d.vstab_height_m, zlo = d.vstab_z_lo_m, zhi = d.vstab_z_hi_m;
+  const fuse = d.fuselage_length_m || 1, fr = d.fuselage_radius_m || 0.03;
+  const sideItems = [
+    { t: "rect", x: d.boom_x_front_m - fuse, y: -fr, w: fuse, h: 2*fr },
+    { t: "rect", x: 0, y: -0.01, w: c, h: 0.02 },
+    { t: "rect", x: d.vstab_le_x_m, y: zlo, w: d.vstab_chord_m, h: vh },
+    { t: "rect", x: hx, y: -0.01, w: hc, h: 0.02 },
+    { t: "line", x1: 0.25*c, y1: 0, x2: d.vstab_te_x_m, y2: 0, dash: true },
+  ];
+
+  const W = 920, margin = 64;
+  const spanOf = items => {
+    const xs = [];
+    items.forEach(it => {
+      if (it.t === "poly") it.pts.forEach(p => xs.push(p[0]));
+      if (it.t === "rect") { xs.push(it.x, it.x+it.w); }
+      if (it.t === "line") { xs.push(it.x1, it.x2); }
+    });
+    return Math.max(...xs) - Math.min(...xs);
+  };
+  const scale = (W - 2 * margin) / Math.max(spanOf(topItems), spanOf(sideItems), 1e-6);
+
+  drawPlan("planTop", "Top view — hover a dimension", topItems, [
+    { x1: -b/2, y1: -0.12, x2: b/2, y2: -0.12, lx: 0, ly: -0.22, text: `b = ${b.toFixed(2)} m`,
+      ex1: -b/2, ey1: 0, ex2: b/2, ey2: 0 },
+    { x1: -b/2-0.08, y1: 0, x2: -b/2-0.08, y2: c, lx: -b/2-0.18, ly: c/2, text: `c = ${c.toFixed(2)} m`, anchor: "end",
+      ex1: -b/2, ey1: 0, ex2: -b/2, ey2: c },
+    { x1: by+0.08, y1: 0.25*c, x2: by+0.08, y2: bl, lx: by+0.18, ly: (0.25*c+bl)/2, text: `boom ${bl.toFixed(2)} m`, anchor: "start",
+      ex1: by, ey1: 0.25*c, ex2: by, ey2: bl },
+    { x1: -hs/2, y1: hx+hc+0.12, x2: hs/2, y2: hx+hc+0.12, lx: 0, ly: hx+hc+0.22, text: `H-stab ${hs.toFixed(2)} m`,
+      ex1: -hs/2, ey1: hx, ex2: hs/2, ey2: hx },
+    { x1: yail, y1: c+0.10, x2: yail + (d.aileron_span_each_m||0), y2: c+0.10,
+      lx: yail + 0.5*(d.aileron_span_each_m||0), ly: c+0.20,
+      text: `aileron ${(d.aileron_span_each_m||0).toFixed(2)} m`,
+      ex1: yail, ey1: hinge, ex2: yail + (d.aileron_span_each_m||0), ey2: hinge },
+  ], true, scale, W);
+
+  drawPlan("planSide", "Side view — hover a dimension", sideItems, [
+    { x1: d.boom_x_front_m - fuse, y1: -fr-0.06, x2: d.boom_x_front_m, y2: -fr-0.06,
+      lx: d.boom_x_front_m - fuse/2, ly: -fr-0.12, text: `fuse ${fuse.toFixed(2)} m`,
+      ex1: d.boom_x_front_m - fuse, ey1: fr, ex2: d.boom_x_front_m, ey2: fr },
+    { x1: d.vstab_le_x_m + d.vstab_chord_m + 0.05, y1: zlo, x2: d.vstab_le_x_m + d.vstab_chord_m + 0.05, y2: zhi,
+      lx: d.vstab_le_x_m + d.vstab_chord_m + 0.14, ly: (zlo+zhi)/2, text: `V-stab ${vh.toFixed(2)} m`, anchor: "start",
+      ex1: d.vstab_le_x_m, ey1: zlo, ex2: d.vstab_le_x_m, ey2: zhi },
+    { x1: d.vstab_le_x_m, y1: zlo - 0.06, x2: d.vstab_le_x_m + d.vstab_chord_m, y2: zlo - 0.06,
+      lx: d.vstab_le_x_m + d.vstab_chord_m/2, ly: zlo - 0.12, text: `cᵥ ${d.vstab_chord_m.toFixed(2)} m`,
+      ex1: d.vstab_le_x_m, ey1: zlo, ex2: d.vstab_le_x_m + d.vstab_chord_m, ey2: zlo },
+  ], false, scale, W);
+})();
+
+(function compare() {
+  const el = document.getElementById("compare");
+  if (!el) return;
+  const ids = CFG_ORDER;
+  const rows = [
+    ["sec", "Layout"],
+    ["Span", c => num(c.dims.span_m, 3, " m"), "max"],
+    ["Root chord", c => num(c.dims.chord_m, 3, " m")],
+    ["Tip chord", c => num(c.dims.tip_chord_m, 3, " m")],
+    ["Wing area", c => num(c.dims.wing_area_m2, 3, " m²")],
+    ["Aspect ratio", c => num(c.dims.aspect_ratio, 1), "max"],
+    ["Taper λ", c => num(c.dims.taper_ratio, 2)],
+    ["H-stab arm", c => num(c.dims.tail_arm_m, 3, " m")],
+    ["V-stab arm", c => c.dims.vstab_arm_m != null ? num(c.dims.vstab_arm_m, 3, " m") : "—"],
+    ["Boom spacing", c => num(c.dims.boom_spacing_m, 3, " m")],
+    ["Boom length", c => num(c.dims.boom_length_m, 3, " m")],
+    ["Boom OD", c => c.metrics.boom_od_mm != null ? num(c.metrics.boom_od_mm, 1, " mm") : "—"],
+    ["Motors / props", c => String(c.metrics.n_motors ?? "—") + "  ·  " + (c.metrics.prop || "—")],
+    ["sec", "Mass & energy"],
+    ["Mass", c => num(c.dims.mass_kg || c.mass.total.mass, 3, " kg"), "min"],
+    ["Packs", c => String(c.metrics.n_packs ?? "—") + " × 483 Wh"],
+    ["Pack energy", c => num(c.metrics.pack_wh, 0, " Wh")],
+    ["Cells / strings", c => (c.metrics.n_cells ?? "—") + "  ·  " + (c.metrics.string_plan || "—")],
+    ["Closed", c => (c.energy && c.energy.closed) ? "yes" : "no", "closed"],
+    ["Day-2 margin", c => num(c.energy && c.energy.margin_wh, 1, " Wh"), "max"],
+    ["SOC min", c => pct(c.energy && c.energy.soc_min), "max"],
+    ["SOC start / end", c => pct(c.energy && c.energy.soc_start) + " / " + pct(c.energy && c.energy.soc_end)],
+    ["Cycle", c => num(c.energy && c.energy.cycle_wh, 2, " Wh")],
+    ["Night bus", c => num(c.energy && c.energy.p_night_w, 1, " W"), "min"],
+    ["Day bus", c => num(c.energy && c.energy.p_day_w, 1, " W"), "min"],
+    ["Climb", c => num(c.energy && c.energy.climb_ms, 2, " m/s"), "max"],
+    ["Night V", c => num(c.drag && c.drag.v_ms, 2, " m/s")],
+    ["L/D night", c => num(c.drag && c.drag.ld, 1), "max"],
+    ["Night drag", c => num(c.drag && c.drag.drag_total_n, 2, " N"), "min"],
+  ];
+  function num(v, d, s) {
+    if (v == null || !isFinite(+v)) return "—";
+    return (+v).toFixed(d) + (s || "");
+  }
+  function pct(v) {
+    if (v == null || !isFinite(+v)) return "—";
+    return (100 * +v).toFixed(1) + " %";
+  }
+  function raw(c, row) {
+    const fn = row[1];
+    if (row[0] === "Mass") return +(c.dims.mass_kg || (c.mass && c.mass.total && c.mass.total.mass) || NaN);
+    if (row[0] === "Day-2 margin") return +(c.energy && c.energy.margin_wh);
+    if (row[0] === "SOC min") return +(c.energy && c.energy.soc_min);
+    if (row[0] === "Night bus") return +(c.energy && c.energy.p_night_w);
+    if (row[0] === "Day bus") return +(c.energy && c.energy.p_day_w);
+    if (row[0] === "Climb") return +(c.energy && c.energy.climb_ms);
+    if (row[0] === "L/D night") return +(c.drag && c.drag.ld);
+    if (row[0] === "Night drag") return +(c.drag && c.drag.drag_total_n);
+    if (row[0] === "Span") return +(c.dims.span_m);
+    if (row[0] === "Aspect ratio") return +(c.dims.aspect_ratio);
+    if (row[0] === "Closed") return (c.energy && c.energy.closed) ? 1 : 0;
+    return NaN;
+  }
+  function cls(row, id) {
+    const sense = row[2];
+    if (!sense) return "";
+    const vals = ids.map(k => raw(CONFIGS[k].payload, row)).filter(v => isFinite(v));
+    if (!vals.length) return "";
+    const v = raw(CONFIGS[id].payload, row);
+    if (!isFinite(v)) return "";
+    if (sense === "closed") return v ? "best" : "worst";
+    const best = sense === "min" ? Math.min(...vals) : Math.max(...vals);
+    const worst = sense === "min" ? Math.max(...vals) : Math.min(...vals);
+    if (vals.every(x => x === vals[0])) return "";
+    if (v === best) return "best";
+    if (v === worst) return "worst";
+    return "";
+  }
+  const head = "<tr><th>Metric</th>" + ids.map(id =>
+    `<th>${CONFIGS[id].label}</th>`).join("") + "</tr>";
+  const body = rows.map(row => {
+    if (row[0] === "sec") {
+      return `<tr class="sec"><td colspan="${1 + ids.length}">${row[1]}</td></tr>`;
+    }
+    return "<tr><td>" + row[0] + "</td>" + ids.map(id => {
+      const p = CONFIGS[id].payload;
+      return `<td class="${cls(row, id)}">${row[1](p)}</td>`;
+    }).join("") + "</tr>";
+  }).join("");
+  el.innerHTML = `
+    <p class="note">Same mission score (two-day march, 20% SOC floor, no 98% refill) and GVB-8 buck/boost MPPT on all three. Boom tube diameters are left as each configuration’s current model. Green / red mark best / worst where a direction is meaningful.</p>
+    <table class="side">${head}${body}</table>`;
+})();
+</script>
+<script type="module">
+import * as THREE from "./lib/three.module.js";
+import { OrbitControls } from "./lib/OrbitControls.js";
+import { TransformControls } from "./lib/TransformControls.js";
+
+function parseSTL(b64) {
+  const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const n = new DataView(bin.buffer).getUint32(80, true);
+  const pos = new Float32Array(n * 9);
+  let o = 84, p = 0;
+  for (let i = 0; i < n; i++) {
+    o += 12;
+    for (let k = 0; k < 9; k++, p++, o += 4) pos[p] = new DataView(bin.buffer).getFloat32(o, true);
+    o += 2;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+function acToThree(geom) {
+  geom.applyMatrix4(new THREE.Matrix4().set(1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,1));
+  return geom;
+}
+function acPos(x, y, z) { return new THREE.Vector3(x, z, y); }  // aircraft: +x aft, +y span, +z up
+
+function combineTotal(components) {
+  let m = 0, mx = 0, my = 0, mz = 0;
+  for (const c of Object.values(components)) {
+    m += c.mass; mx += c.mass * c.x_cg; my += c.mass * c.y_cg; mz += c.mass * c.z_cg;
+  }
+  const x = m ? mx / m : 0, y = m ? my / m : 0, z = m ? mz / m : 0;
+  let Ixx = 0, Iyy = 0, Izz = 0, Ixy = 0, Iyz = 0, Ixz = 0;
+  for (const c of Object.values(components)) {
+    const Rx = x - c.x_cg, Ry = y - c.y_cg, Rz = z - c.z_cg;
+    const RR = Rx*Rx + Ry*Ry + Rz*Rz;
+    Ixx += c.Ixx + c.mass * (RR - Rx*Rx);
+    Iyy += c.Iyy + c.mass * (RR - Ry*Ry);
+    Izz += c.Izz + c.mass * (RR - Rz*Rz);
+    Ixy += c.Ixy - c.mass * Rx * Ry;
+    Iyz += c.Iyz - c.mass * Ry * Rz;
+    Ixz += c.Ixz - c.mass * Rz * Rx;
+  }
+  return { mass: m, x_cg: x, y_cg: y, z_cg: z, Ixx, Iyy, Izz, Ixy, Iyz, Ixz };
+}
+
+const mp0 = DATA.mass;
+const layoutKey = "av-layout:" + DATA.name;
+const layout = {};
+try { Object.assign(layout, JSON.parse(localStorage.getItem(layoutKey) || "{}")); } catch (e) {}
+const colors = DATA.colors;
+const D = DATA.dims;
+const CAT_ORDER = ["battery", "avionics", "propulsion", "structure"];
+const CAT_LABEL = { battery: "Battery", avionics: "Avionics", propulsion: "Propulsion", structure: "Structure" };
+const SKIP = new Set(["Wing","H-stab","V-stab L","V-stab R","Boom L","Boom R","Prop L","Prop R"]);
+
+const stage = document.getElementById("stage");
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setClearColor(0x000000, 0);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 40);
+camera.up.set(0, 1, 0);
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enableDamping = true;
+const views = {
+  iso: { pos: [1.4, 4.8, 4.0], tgt: [0.4, 0.05, 0] },
+  top: { pos: [0.4, 9.0, 0.01], tgt: [0.4, 0, 0] },
+  side: { pos: [0.6, 0.4, 8.5], tgt: [0.6, 0, 0] },
+  front: { pos: [-6.5, 0.8, 0], tgt: [0.4, 0, 0] },
+};
+let activeView = "iso";
+function setView(name) {
+  const v = views[name];
+  activeView = name;
+  camera.position.set(...v.pos);
+  orbit.target.set(...v.tgt);
+  orbit.update();
+  document.querySelectorAll("[data-v]").forEach(b => b.classList.toggle("primary", b.dataset.v === name));
+}
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const key = new THREE.DirectionalLight(0xffffff, 0.85); key.position.set(2, 6, 4); scene.add(key);
+const fill = new THREE.DirectionalLight(0x88aacc, 0.3); fill.position.set(-4, 1, -2); scene.add(fill);
+const grid = new THREE.GridHelper(10, 20, 0x3a3f46, 0x2a2e34);
+grid.position.y = -0.5;
+scene.add(grid);
+function paintGrid() {
+  const light = document.documentElement.classList.contains("light");
+  const mats = Array.isArray(grid.material) ? grid.material : [grid.material];
+  mats.forEach((m, i) => m && m.color && m.color.set(light ? (i ? 0xd8dce0 : 0xb0b4b8) : (i ? 0x2a2e34 : 0x3a3f46)));
+}
+paintGrid();
+
+const structMat = new THREE.MeshStandardMaterial({
+  color: 0xc8ccd0, metalness: 0.05, roughness: 0.55, transparent: true, opacity: 0.28, depthWrite: false,
+});
+const struct = new THREE.Mesh(acToThree(parseSTL(window.MESH.struct)), structMat);
+scene.add(struct);
+const cellsMesh = new THREE.Mesh(acToThree(parseSTL(window.MESH.cells)),
+  new THREE.MeshStandardMaterial({ color: 0x2f5f8a, metalness: 0.2, roughness: 0.4, side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+scene.add(cellsMesh);
+const propsMesh = new THREE.Mesh(acToThree(parseSTL(window.MESH.props)),
+  new THREE.MeshStandardMaterial({ color: 0x4a4e54, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
+scene.add(propsMesh);
+
+const straddleG = new THREE.Group();
+scene.add(straddleG);
+{
+  const hx = (D.hstab_le_x_m != null) ? D.hstab_le_x_m : (D.hstab_te_x_m - D.hstab_chord_m);
+  const mat = new THREE.MeshPhongMaterial({ color: 0xf59e0b, emissive: 0xf59e0b, emissiveIntensity: 0.25,
+    transparent: true, opacity: 0.85, depthTest: true });
+  for (const cl of (DATA.cells || []).filter(c => c.straddle)) {
+    const dx = cl.x1 - cl.x0, dy = cl.y1 - cl.y0;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(dx, 0.004, dy), mat);
+    const x = 0.5 * (cl.x0 + cl.x1) + (cl.bay === "hstab" ? hx : 0);
+    mesh.position.copy(acPos(x, 0.5 * (cl.y0 + cl.y1), cl.bay === "hstab" ? (D.hstab_z_m || 0) + 0.02 : 0.03));
+    straddleG.add(mesh);
+  }
+}
+
+const meshes = {};
+function makeGeom(p) {
+  if (p.kind === "sphere") return new THREE.SphereGeometry(p.size[0], 16, 12);
+  if (p.kind === "disk") {
+    const g = new THREE.CircleGeometry(p.size[0], 28);
+    g.rotateY(Math.PI / 2);
+    return g;
+  }
+  if (p.kind === "cylinder") {
+    const g = new THREE.CylinderGeometry(p.size[1]/2, p.size[1]/2, p.size[0], 18);
+    g.rotateZ(Math.PI / 2);
+    return acToThree(g);
+  }
+  const [lx, ly, lz] = p.size;
+  return new THREE.BoxGeometry(lx, lz, ly);
+}
+for (const [name, p] of Object.entries(mp0.positions)) {
+  if (SKIP.has(name)) continue;
+  const col = new THREE.Color(colors[p.category] || "#888");
+  const mat = new THREE.MeshPhongMaterial({ color: col, emissive: p.draggable ? col : 0x000000,
+    emissiveIntensity: p.draggable ? 0.18 : 0, transparent: p.kind === "disk", opacity: p.kind === "disk" ? 0.35 : 1 });
+  const mesh = new THREE.Mesh(makeGeom(p), mat);
+  const xyz = layout[name] || p.xyz;
+  mesh.position.copy(acPos(...xyz));
+  mesh.userData = { name, draggable: p.draggable };
+  scene.add(mesh);
+  meshes[name] = mesh;
+}
+
+const cg = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 12),
+  new THREE.MeshPhongMaterial({ color: 0xff3b30, emissive: 0xff3b30, emissiveIntensity: 0.5 }));
+scene.add(cg);
+const c4 = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 10),
+  new THREE.MeshPhongMaterial({ color: 0x8ab4f8, emissive: 0x8ab4f8, emissiveIntensity: 0.35 }));
+c4.position.copy(acPos(mp0.x_c4, 0, 0));
+scene.add(c4);
+
+function makeSprite(text, fill) {
+  const cv = document.createElement("canvas"); cv.width = 256; cv.height = 64;
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, 256, 64);
+  ctx.font = "28px ui-monospace, monospace";
+  ctx.fillStyle = fill; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(text, 128, 32);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false, transparent: true }));
+  spr.scale.set(0.55, 0.14, 1);
+  spr.userData.text = text;
+  return spr;
+}
+function ink() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--ink").trim() || "#fff";
+}
+const cgLab = makeSprite("CG", "#ff3b30"); scene.add(cgLab);
+const c4Lab = makeSprite("c/4", "#8ab4f8"); scene.add(c4Lab);
+c4Lab.position.copy(acPos(mp0.x_c4, 0, 0.12));
+
+const axesG = new THREE.Group();
+scene.add(axesG);
+{
+  const L = 0.55;
+  const origin = acPos(0, 0, 0);
+  const axes = [
+    { dir: [1, 0, 0], color: 0xe53935, hex: "#e53935", lab: "X" },
+    { dir: [0, 1, 0], color: 0x43a047, hex: "#43a047", lab: "Y" },
+    { dir: [0, 0, 1], color: 0x1e88e5, hex: "#1e88e5", lab: "Z" },
+  ];
+  for (const a of axes) {
+    const tip = acPos(a.dir[0] * L, a.dir[1] * L, a.dir[2] * L);
+    const dir = tip.clone().sub(origin).normalize();
+    axesG.add(new THREE.ArrowHelper(dir, origin, L, a.color, 0.09, 0.045));
+    const spr = makeSprite(a.lab, a.hex);
+    spr.position.copy(acPos(a.dir[0] * (L + 0.10), a.dir[1] * (L + 0.10), a.dir[2] * (L + 0.10)));
+    spr.scale.set(0.32, 0.09, 1);
+    axesG.add(spr);
+  }
+  const originBall = new THREE.Mesh(
+    new THREE.SphereGeometry(0.022, 14, 12),
+    new THREE.MeshPhongMaterial({ color: 0xfafafa, emissive: 0x888888, emissiveIntensity: 0.35 }));
+  originBall.position.copy(origin);
+  axesG.add(originBall);
+  const originLab = makeSprite("O", "#fafafa");
+  originLab.position.copy(acPos(-0.08, -0.08, -0.08));
+  originLab.scale.set(0.32, 0.09, 1);
+  axesG.add(originLab);
+}
+
+const dimsGroup = new THREE.Group();
+scene.add(dimsGroup);
+const dimObjects = [];
+function addDim(a, b, text, lp, targets) {
+  const geo = new THREE.BufferGeometry().setFromPoints([acPos(...a), acPos(...b)]);
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x9aa0a6 }));
+  dimsGroup.add(line);
+  const spr = makeSprite(text, ink());
+  spr.position.copy(acPos(...lp));
+  spr.scale.set(0.7, 0.18, 1);
+  dimsGroup.add(spr);
+  dimObjects.push({ line, label: spr, targets: targets || [] });
+}
+const b = D.span_m, c = D.chord_m, yb = D.boom_spacing_m/2;
+addDim([0.25*c, -b/2, 0.16], [0.25*c, b/2, 0.16], `${b.toFixed(2)} m`, [0.25*c, 0, 0.28], []);
+addDim([-0.02, b/2+0.12, 0], [c, b/2+0.12, 0], `${c.toFixed(2)} m`, [c/2, b/2+0.28, 0], []);
+addDim([D.boom_x_front_m, yb, 0.08], [D.vstab_te_x_m, yb, 0.08], `${D.boom_length_m.toFixed(2)} m`,
+  [0.5*(D.boom_x_front_m+D.vstab_te_x_m), yb, 0.2], ["Motor R"]);
+addDim([D.vstab_le_x_m, yb, D.vstab_z_lo_m], [D.vstab_le_x_m, yb, D.vstab_z_hi_m],
+  `${D.vstab_height_m.toFixed(2)} m`, [D.vstab_le_x_m, yb, D.vstab_z_hi_m + 0.12], []);
+addDim([D.hstab_le_x_m || (D.hstab_te_x_m - D.hstab_chord_m), -D.hstab_span_m/2, 0.14],
+  [D.hstab_le_x_m || (D.hstab_te_x_m - D.hstab_chord_m), D.hstab_span_m/2, 0.14],
+  `${D.hstab_span_m.toFixed(2)} m`,
+  [D.hstab_le_x_m || (D.hstab_te_x_m - D.hstab_chord_m), 0, 0.26], []);
+addDim([D.boom_x_front_m - D.fuselage_length_m, -yb, -0.12], [D.boom_x_front_m, -yb, -0.12],
+  `${D.fuselage_length_m.toFixed(2)} m`,
+  [D.boom_x_front_m - 0.5*D.fuselage_length_m, -yb, -0.24], ["Avionics L"]);
+
+const hingeG = new THREE.Group();
+scene.add(hingeG);
+{
+  const xh = (1 - D.aileron_chord_frac) * c;
+  const y1 = D.aileron_y_inner_m, y2 = D.span_m/2;
+  for (const s of [-1, 1]) {
+    const geo = new THREE.BufferGeometry().setFromPoints([acPos(xh, s*y1, 0.04), acPos(xh, s*y2, 0.04)]);
+    hingeG.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xf59e0b })));
+  }
+}
+
+const gizmo = new TransformControls(camera, renderer.domElement);
+gizmo.setMode("translate"); gizmo.setSpace("local"); gizmo.setSize(0.75);
+gizmo.addEventListener("dragging-changed", e => { orbit.enabled = !e.value; });
+gizmo.addEventListener("objectChange", () => {
+  const obj = gizmo.object;
+  if (!obj) return;
+  layout[obj.userData.name] = [obj.position.x, obj.position.z, obj.position.y];
+  localStorage.setItem(layoutKey, JSON.stringify(layout));
+  updateMass();
+});
+scene.add(gizmo);
+
+let selected = null;
+function applyEmissive(mesh, on) {
+  if (!mesh) return;
+  const m = mesh.material;
+  m.emissiveIntensity = on ? 0.7 : (mesh.userData.draggable ? 0.18 : 0);
+}
+function select(name) {
+  if (selected) applyEmissive(meshes[selected], false);
+  gizmo.detach();
+  selected = name;
+  const mesh = name ? meshes[name] : null;
+  if (mesh) {
+    applyEmissive(mesh, true);
+    if (mesh.userData.draggable) gizmo.attach(mesh);
+  }
+  renderList();
+}
+
+function currentMass() {
+  const comps = {};
+  for (const [n, c] of Object.entries(mp0.components)) {
+    const ov = layout[n];
+    comps[n] = ov && mp0.positions[n].draggable
+      ? { ...c, x_cg: ov[0], y_cg: ov[1], z_cg: ov[2] } : { ...c };
+  }
+  return { components: comps, total: combineTotal(comps) };
+}
+function updateMass() {
+  const cur = currentMass();
+  cg.position.copy(acPos(cur.total.x_cg, cur.total.y_cg, cur.total.z_cg));
+  cgLab.position.copy(acPos(cur.total.x_cg, cur.total.y_cg, cur.total.z_cg + 0.12));
+  renderBalance(cur.total);
+  renderList();
+}
+
+function panel(title, bodyHtml) {
+  const wrap = document.createElement("div");
+  wrap.className = "panel";
+  wrap.innerHTML = `<button class="head"><span>${title}</span><span>▾</span></button><div class="body">${bodyHtml}</div>`;
+  const body = wrap.querySelector(".body");
+  wrap.querySelector(".head").onclick = () => { body.style.display = body.style.display === "none" ? "" : "none"; };
+  return wrap;
+}
+
+const left = document.getElementById("ov-left");
+left.appendChild(panel("View", `
+  <div class="views">
+    <button data-v="iso">Iso</button><button data-v="top">Top</button>
+    <button data-v="side">Side</button><button data-v="front">Front</button>
+  </div>
+  <label class="chk"><span>Dimensions</span><input type="checkbox" id="tog-dims" checked></label>
+  <label class="chk"><span>Aileron hinge</span><input type="checkbox" id="tog-hinge" checked></label>
+  <label class="chk"><span>Hinge-straddle cells</span><input type="checkbox" id="tog-straddle" checked></label>
+  <label class="chk"><span>Structure</span><input type="checkbox" id="tog-struct" checked></label>
+  <label class="chk"><span>Cells</span><input type="checkbox" id="tog-cells" checked></label>
+  <label class="chk"><span>Props</span><input type="checkbox" id="tog-props" checked></label>
+  <label class="chk"><span>CG / c/4</span><input type="checkbox" id="tog-cg" checked></label>
+  <label class="chk"><span>Origin / axes</span><input type="checkbox" id="tog-axes" checked></label>
+  <div class="chk"><span>Skin opacity</span><span class="mono" id="op-lab">28%</span></div>
+  <input type="range" id="op" min="0.05" max="1" step="0.01" value="0.28">
+  <div class="legend">
+    <span><span class="swatch" style="background:#ff3b30"></span>CG</span>
+    <span><span class="swatch" style="background:#8ab4f8"></span>Wing c/4</span>
+    <span><span class="swatch" style="background:#f59e0b"></span>Hinge / straddle</span>
+    <span><span class="swatch" style="background:#4a90e2"></span>Pack</span>
+    <span><span class="swatch" style="background:#e53935"></span>X aft</span>
+    <span><span class="swatch" style="background:#43a047"></span>Y span</span>
+    <span><span class="swatch" style="background:#1e88e5"></span>Z up</span>
+  </div>
+`));
+left.querySelectorAll("[data-v]").forEach(btn => btn.onclick = () => setView(btn.dataset.v));
+setView("iso");
+document.getElementById("tog-dims").onchange = e => { dimsGroup.visible = e.target.checked; };
+document.getElementById("tog-hinge").onchange = e => { hingeG.visible = e.target.checked; };
+document.getElementById("tog-straddle").onchange = e => { straddleG.visible = e.target.checked; };
+document.getElementById("tog-struct").onchange = e => { struct.visible = e.target.checked; };
+document.getElementById("tog-cells").onchange = e => { cellsMesh.visible = e.target.checked; };
+document.getElementById("tog-props").onchange = e => { propsMesh.visible = e.target.checked; };
+document.getElementById("tog-cg").onchange = e => {
+  cg.visible = c4.visible = cgLab.visible = c4Lab.visible = e.target.checked;
+};
+document.getElementById("tog-axes").onchange = e => { axesG.visible = e.target.checked; };
+document.getElementById("op").oninput = e => {
+  const v = +e.target.value;
+  structMat.opacity = v; structMat.transparent = v < 1; structMat.depthWrite = v >= 1;
+  document.getElementById("op-lab").textContent = Math.round(v * 100) + "%";
+};
+
+const right = document.getElementById("ov-right");
+const listPanel = panel("Components", `<div id="elist"></div><div class="hint" id="ehint"></div>
+  <button id="btn-reset" disabled style="margin-top:8px">Reset layout</button>`);
+const balPanel = panel("Mass balance", `<div id="ebal"></div>`);
+right.appendChild(listPanel);
+right.appendChild(balPanel);
+document.getElementById("btn-reset").onclick = () => {
+  for (const k of Object.keys(layout)) delete layout[k];
+  localStorage.removeItem(layoutKey);
+  for (const [n, p] of Object.entries(mp0.positions)) {
+    if (meshes[n]) meshes[n].position.copy(acPos(...p.xyz));
+  }
+  updateMass();
+};
+
+function renderList() {
+  const cur = currentMass();
+  const tot = cur.total.mass || 1;
+  const max = Math.max(...Object.values(cur.components).map(c => c.mass));
+  const names = Object.keys(cur.components).sort((a, b) => {
+    const ca = CAT_ORDER.indexOf(mp0.positions[a].category);
+    const cb = CAT_ORDER.indexOf(mp0.positions[b].category);
+    if (ca !== cb) return ca - cb;
+    return cur.components[b].mass - cur.components[a].mass;
+  });
+  const byCat = {};
+  names.forEach(n => {
+    const cat = mp0.positions[n].category;
+    (byCat[cat] ||= []).push(n);
+  });
+  const partsOf = mp0.part_breakdown || {};
+  let html = "";
+  CAT_ORDER.forEach(cat => {
+    const ns = byCat[cat];
+    if (!ns || !ns.length) return;
+    const catMass = ns.reduce((s, n) => s + cur.components[n].mass, 0);
+    html += `<details class="cat-drop" open><summary><span>${CAT_LABEL[cat] || cat}</span><span class="mono">${catMass.toFixed(3)} kg</span></summary>`;
+    if (cat === "avionics" && mp0.fixed_breakdown) {
+      html += `<details class="part-drop"><summary class="el-sub">Fixed constituents</summary>`;
+      Object.entries(mp0.fixed_breakdown).forEach(([k, v]) => {
+        html += `<div class="el-sub row"><span>${k.replaceAll("_", " ")}</span><span class="mono">${Number(v).toFixed(3)}</span></div>`;
+      });
+      html += `</details>`;
+    }
+    ns.forEach(n => {
+      const c = cur.components[n], p = mp0.positions[n];
+      const col = colors[p.category] || "#888";
+      const on = selected === n ? " on" : "";
+      const head = `<div class="row"><span class="m"><span class="swatch" style="background:${col}"></span>${n}${p.draggable ? " ↔" : ""}</span>
+        <span class="mono">${c.mass.toFixed(3)} <span class="m">${(100*c.mass/tot).toFixed(0)}%</span></span></div>
+        <div class="bar"><i style="width:${100*c.mass/max}%;background:${col}"></i></div>`;
+      const parts = partsOf[n];
+      if (parts && parts.length > 1) {
+        html += `<details class="part-drop"><summary class="el${on}" data-n="${n}">${head}</summary>`;
+        parts.forEach(q => {
+          html += `<div class="el-sub row"><span>${q.label}</span><span class="mono">${q.mass.toFixed(3)}</span></div>`;
+        });
+        html += `</details>`;
+      } else {
+        html += `<button class="el${on}" data-n="${n}">${head}</button>`;
+      }
+    });
+    html += `</details>`;
+  });
+  document.getElementById("elist").innerHTML = html;
+  document.querySelectorAll("#elist [data-n]").forEach(el => {
+    el.addEventListener("click", e => {
+      e.stopPropagation();
+      select(el.dataset.n === selected ? null : el.dataset.n);
+    });
+  });
+  document.getElementById("ehint").textContent = selected
+    ? (mp0.positions[selected].draggable ? "Drag the arrows. Red = CG, blue = wing c/4." : "Fixed by geometry.")
+    : "Click a ↔ part (or its box) to move it. Skin stays put.";
+  document.getElementById("btn-reset").disabled = Object.keys(layout).length === 0;
+}
+function renderBalance(t) {
+  const sm = t.x_cg - mp0.x_c4;
+  document.getElementById("ebal").innerHTML = [
+    ["Total", t.mass.toFixed(3)+" kg"],
+    ["CG x", t.x_cg.toFixed(3)+" m"],
+    ["CG y", t.y_cg.toFixed(3)+" m"],
+    ["CG z", t.z_cg.toFixed(3)+" m"],
+    ["c/4 x", mp0.x_c4.toFixed(3)+" m"],
+    ["CG − c/4", sm.toFixed(3)+" m"],
+    ["Ixx", t.Ixx.toFixed(3)], ["Iyy", t.Iyy.toFixed(3)], ["Izz", t.Izz.toFixed(3)],
+    ["Ixy", t.Ixy.toFixed(3)], ["Ixz", t.Ixz.toFixed(3)], ["Iyz", t.Iyz.toFixed(3)],
+  ].map(([k,v]) => `<div class="row"><span class="m">${k}</span><b class="mono">${v}</b></div>`).join("");
+}
+
+const dimRay = new THREE.Raycaster();
+dimRay.params.Line = dimRay.params.Line || {};
+dimRay.params.Line.threshold = 0.06;
+const ptr = new THREE.Vector2();
+let hoveredDim = null;
+function clearDimHL() {
+  if (!hoveredDim) return;
+  hoveredDim.line.material.color.setHex(0x9aa0a6);
+  hoveredDim.label.material.color.setHex(0xffffff);
+  hoveredDim.targets.forEach(n => meshes[n] && applyEmissive(meshes[n], selected === n));
+  hoveredDim = null;
+}
+renderer.domElement.addEventListener("pointermove", e => {
+  if (!dimsGroup.visible || gizmo.dragging) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  ptr.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  ptr.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  dimRay.setFromCamera(ptr, camera);
+  const hit = dimRay.intersectObjects(dimObjects.flatMap(d => [d.line, d.label]))[0];
+  const dim = hit ? dimObjects.find(d => d.line === hit.object || d.label === hit.object) : null;
+  if (dim === hoveredDim) return;
+  clearDimHL();
+  if (dim) {
+    hoveredDim = dim;
+    dim.line.material.color.setHex(0xf59e0b);
+    dim.label.material.color.setHex(0xf59e0b);
+    dim.targets.forEach(n => meshes[n] && applyEmissive(meshes[n], true));
+  }
+});
+
+let down = null;
+renderer.domElement.addEventListener("pointerdown", e => { down = { x: e.clientX, y: e.clientY }; });
+renderer.domElement.addEventListener("pointerup", e => {
+  if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return;
+  if (gizmo.dragging) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  ptr.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  ptr.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  dimRay.setFromCamera(ptr, camera);
+  const hits = dimRay.intersectObjects(Object.values(meshes), false);
+  if (hits[0]) select(hits[0].object.userData.name);
+});
+
+document.getElementById("btn-dl").onclick = () => {
+  const blob = new Blob([JSON.stringify({
+    name: DATA.name, closed, margin_wh: DATA.energy && DATA.energy.margin_wh,
+    layout, mass: currentMass().total, x_c4: mp0.x_c4,
+  }, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "aircraftview-layout.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+document.addEventListener("av-theme", () => {
+  paintGrid();
+  const fillCol = ink();
+  dimObjects.forEach(d => {
+    const map = d.label.material.map;
+    const ctx = map.image.getContext("2d");
+    ctx.clearRect(0, 0, 256, 64);
+    ctx.font = "28px ui-monospace, monospace";
+    ctx.fillStyle = fillCol; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(d.label.userData.text, 128, 32);
+    map.needsUpdate = true;
+  });
+});
+
+updateMass();
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  if (w < 8 || h < 8) return;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage);
+window.addEventListener("resize", resize);
+resize();
+function tick() { orbit.update(); renderer.render(scene, camera); requestAnimationFrame(tick); }
+tick();
+</script>
+</body>
+</html>

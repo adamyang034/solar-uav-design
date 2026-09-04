@@ -78,16 +78,20 @@ ENCAPSULATION_TRANSMISSION = 0.97   # FLAGGED: thin fiberglass, 2-5% typical.
 WIRING_MISMATCH_SOILING_EFF = 0.965  # FLAGGED: combined array losses
 
 # ---------------------------------------------------------------------------
-# MPPT — Genasun GVB-8-Li-25.0V boost (datasheet)
+# MPPT — Genasun GVB-8-Li-25.0V (datasheet). Input 0–60 V, charges 6S.
+# Same as the π-tail closer: these units buck and boost, so string Voc may
+# sit above or below the 6S bus. Remaining hard limits are the GVB-8 input
+# ratings, not "must boost."
 # ---------------------------------------------------------------------------
 MPPT_EFFICIENCY = 0.95            # criteria E9 (datasheet says 95-98%)
 MPPT_MAX_INPUT_A = 8.0
-MPPT_MAX_STRING_VMP = 20.0        # recommended max panel Vmp (datasheet)
+MPPT_MAX_PV_VOC_V = 50.0          # recommended max panel Voc at STC
+MPPT_MAX_PV_ABS_V = 60.0          # absolute max panel voltage
+MPPT_MAX_PANEL_W = 210.0          # recommended max panel power (Li-25.0V)
 MPPT_MASS_KG = 0.108              # PCB version (housed = 0.185)
 BUS_V_MIN = 19.2                  # 6S at 3.2 V/cell (criteria E1/E4)
 BUS_V_NOM = 22.2
 BUS_V_MAX = 25.2
-STRING_V_MARGIN = 0.95            # FLAGGED: keep string Vmp below margin*bus_min
 COLD_CELL_T_C = 10.0              # FLAGGED: coldest operating cell temp (dawn)
 
 # ---------------------------------------------------------------------------
@@ -148,9 +152,10 @@ PROP_SANITY_REL = 0.15
 # ---------------------------------------------------------------------------
 # Mass model (user-provided; prototype build table for fixed masses)
 # ---------------------------------------------------------------------------
-WING_AREAL_MASS = 0.84            # kg/m^2 of wetted area, incl. encapsulation,
-                                  # excl. solar cells (user). FLAGGED: flat
-                                  # density, no spar-span scaling correction yet.
+WING_AREAL_MASS = 0.84 * 0.8      # kg/m^2 wetted, main wing only (user 2026-08-17:
+                                  # 0.8× the previous 0.84 model, same as π-tail).
+                                  # Incl. encapsulation, excl. solar cells. Tails
+                                  # stay at TAIL_AREAL_MASS.
 # Split T-tails vs the π-tail build. User (2026-08-16): about 0.75×.
 # FLAGGED: construction estimate, awaiting weigh-in. Do not go below 0.75.
 TAIL_MASS_VS_PI = 0.75
@@ -290,7 +295,7 @@ V_CRUISE_BOUNDS_MS = CONTINUOUS["v_cruise_ms"][:2]
 SPAN_GRID_M = (4.5, 5.0, 5.5, 6.0)
 CHORD_GRID_M = (0.31, 0.36, 0.40, 0.45, 0.52)
 TAIL_ARM_GRID_M = (0.80, 0.90, 1.00, 1.10, 1.20, 1.30, 1.45, 1.60, 1.80, 2.00)
-PACK_GRID = (2,)                   # user: two packs in parallel, no third
+PACK_GRID = (2, 3)                 # same cap as π-tail: at most three packs
 CELLS_PER_STRING_GRID = (12, 16, 20, 24, 29)
 ELEVATOR_FRAC_GRID = (0.22, 0.28, 0.34)
 TAPER_RATIO_GRID = (1.0, 0.60, 0.40)
@@ -329,12 +334,12 @@ MC_PROP_POWER = (PROP_POWER_INFLATE, 0.04, 0.98, 1.22)
 MC_AVIONICS_W = (AVIONICS_POWER_W, 0.80, 4.0, 8.0)
 MC_PACK_ENERGY = (1.00, 0.03, 0.90, 1.05)
 
-# Reference / search start. One series string per bay, Voc < 19.2 V, 2 packs.
+# Reference / search start. One series string per bay, GVB-8 Voc/power cap.
 # 12L direct. Chord start 310 mm (floor 300 mm), tail arm start 0.90 m.
 REF_SPAN_M = OPT_START["span_m"]
 REF_CHORD_M = OPT_START["chord_m"]
 REF_TAIL_ARM_M = OPT_START["tail_arm_m"]
-REF_N_PACKS = 2
+REF_N_PACKS = 3
 REF_ELEVATOR_FRAC = OPT_START["elevator_frac"]
 REF_TAPER_RATIO = OPT_START["taper_ratio"]
 REF_TAPER_START_FRAC = OPT_START["taper_start_frac"]

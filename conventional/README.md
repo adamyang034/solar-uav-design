@@ -11,10 +11,14 @@ rotations.
 **Construction:** single 1.5 in boom (FLAGGED: one load path vs two 1 in
 twin-boom tubes). Fuselage and ESC fixed masses are not halved.
 
+**Energy (same scoring as the π-tail closer):** GVB-8 buck/boost strings
+(cold Voc ≤ 50 V, 210 W panel cap), 2 or 3 packs, two-day march with no
+98% refill gate. Boom is 1.5 in (kept).
+
 ```bash
 .venv/bin/python conventional/scripts/run_phase34.py --search
 .venv/bin/python conventional/scripts/visualize.py
 ```
 
-Viewer (Phase 4 winner): `http://127.0.0.1:8101/`.
+AircraftView (Phase 4 winner): `http://127.0.0.1:8101/`.
 `data/` is a symlink to the parent repository (prop maps, polars).

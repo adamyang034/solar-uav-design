@@ -78,16 +78,20 @@ ENCAPSULATION_TRANSMISSION = 0.97   # FLAGGED: thin fiberglass, 2-5% typical.
 WIRING_MISMATCH_SOILING_EFF = 0.965  # FLAGGED: combined array losses
 
 # ---------------------------------------------------------------------------
-# MPPT — Genasun GVB-8-Li-25.0V boost (datasheet)
+# MPPT — Genasun GVB-8-Li-25.0V (datasheet). Input 0–60 V, charges 6S.
+# Same as the π-tail closer: units buck and boost, so string Voc may sit
+# above or below the 6S bus. Remaining hard limits are the GVB-8 input
+# ratings, not "must boost."
 # ---------------------------------------------------------------------------
 MPPT_EFFICIENCY = 0.95            # criteria E9 (datasheet says 95-98%)
 MPPT_MAX_INPUT_A = 8.0
-MPPT_MAX_STRING_VMP = 20.0        # recommended max panel Vmp (datasheet)
+MPPT_MAX_PV_VOC_V = 50.0          # recommended max panel Voc at STC
+MPPT_MAX_PV_ABS_V = 60.0          # absolute max panel voltage
+MPPT_MAX_PANEL_W = 210.0          # recommended max panel power (Li-25.0V)
 MPPT_MASS_KG = 0.108              # PCB version (housed = 0.185)
 BUS_V_MIN = 19.2                  # 6S at 3.2 V/cell (criteria E1/E4)
 BUS_V_NOM = 22.2
 BUS_V_MAX = 25.2
-STRING_V_MARGIN = 0.95            # FLAGGED: keep string Vmp below margin*bus_min
 COLD_CELL_T_C = 10.0              # FLAGGED: coldest operating cell temp (dawn)
 
 # ---------------------------------------------------------------------------

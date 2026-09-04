@@ -245,7 +245,7 @@ class Design:
     taper_start_frac: float = 1.0     # fraction of outboard span kept rectangular
     boom_spacing_set_m: float | None = None  # center-panel / wing-joint span
     vstab_arm_set_m: float | None = None  # None = just behind H-stab TE
-    one_string_per_bay: bool = False  # True: 1 series string/bay, Voc-capped
+    one_string_per_bay: bool = False  # True: 1 series string/bay, MPPT-capped
     wing_airfoil: str = "s4310"
     hstab_ar: float = config.HSTAB_AR
     vstab_ar: float = config.VSTAB_AR
@@ -694,7 +694,7 @@ class Design:
         lens = self.string_lengths()
         limit = solar_array.max_cells_per_string()
         if self.one_string_per_bay:
-            # Geometry itself must fit one Voc-legal string per bay (no dead cells).
+            # Geometry itself must fit one MPPT-legal string per bay (no dead cells).
             if any(b.capacity > limit for b in self.solar_bays().values()):
                 return False
         return (len(lens) > 0

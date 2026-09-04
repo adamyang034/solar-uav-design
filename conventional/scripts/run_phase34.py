@@ -19,7 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from solar_uav import config, environment, mission, optimize
 from solar_uav.aircraft import Design, RHO_NIGHT, clmax_2d, profile_cd
+from solar_uav.cad import export_all
 from solar_uav.components.battery import BatteryBank
+from solar_uav.components.motor import drive_for
 from solar_uav.components.propulsion import PropulsionSystem, load_prop, shortlist_props
 from solar_uav.components.solar_array import SolarArray, max_cells_per_string
 
@@ -75,7 +77,7 @@ def test_mass_and_geometry():
     check("pack count is an integer", isinstance(d.n_packs, int), str(d.n_packs))
     check("strings fit in bays", d.solar_feasible(),
           f"strings {d.n_strings} max {d.max_strings()}")
-    check("string length <= boost MPPT limit",
+    check("string length <= GVB-8 MPPT limit",
           d.cells_per_string <= max_cells_per_string(),
           str(max_cells_per_string()))
     bays = d.solar_bays()
@@ -366,7 +368,8 @@ def test_asb_envelope():
 def run_optimizer(env):
     print("=" * 70)
     print("PHASE 4 — continuous search (max energy margin)")
-    df = optimize.search_continuous(env, verbose=True)
+    df = optimize.search_continuous(
+        env, verbose=True, dump_path=OUT / "phase4_candidates.csv")
     if df.empty:
         print("  No candidates survived the hard constraints.")
         return None, df
@@ -389,7 +392,8 @@ def run_optimizer(env):
     if "string_plan" in w.index:
         cols = ["span_m", "chord_m", "tail_arm_m", "vstab_arm_m", "n_packs",
                 "string_plan", "n_cells",
-                "prop", "mass_kg", "margin_wh", "soc_min", "p_night_w",
+                "prop", "mass_kg", "margin_wh", "soc_min", "soc_end", "cycle_wh",
+                "p_night_w",
                 "climb_ms", "closed", "reason"]
     print(w[cols].to_string())
     check("winner mass <= 12 kg", w["mass_kg"] <= config.MTOW_MAX_KG + 1e-6,
@@ -401,6 +405,33 @@ def run_optimizer(env):
     check("winner pack count integer",
           float(w["n_packs"]) == int(w["n_packs"]))
     check("winner packing ok", bool(w.get("packing_ok", True)))
+
+    d_win = optimize.design_from_row(w)
+    paths = export_all(d_win)
+    print(f"  CAD viewer: {paths['html']}")
+
+    print("-- catalog motors on this airframe (prop re-picked) --")
+    prop_names = optimize._prop_candidates()
+    cache = {n: load_prop(n) for n in prop_names}
+    motor_rows = []
+    for key in config.MOTOR_CATALOG:
+        d_m = optimize.design_from_row(w)
+        d_m.motor_name = key
+        drive = drive_for(key)
+        systems = {n: PropulsionSystem(prop=cache[n], motor=drive)
+                   for n in prop_names}
+        rec = optimize.evaluate_design(
+            d_m, env, prop_names, cache, drive, systems)
+        if rec is None:
+            print(f"  {key}: no climb-legal prop")
+            continue
+        motor_rows.append(rec)
+        print(f"  {key}  {rec['prop']}  mass={rec['mass_kg']:.2f} kg  "
+              f"Pnight={rec['p_night_w']:.1f} W  margin={rec['margin_wh']:.1f} Wh  "
+              f"closed={rec['closed']}")
+    if motor_rows:
+        pd.DataFrame(motor_rows).to_csv(OUT / "phase4_motors_on_winner.csv",
+                                        index=False)
     return w, df
 
 

@@ -4,6 +4,7 @@ Builds an AeroSandbox solid (wing, H-stab in the wing plane, V-stabs further
 aft, pods, booms), plus solar-cell patches and tractor prop disks. Exports:
 
   * binary STL (structure mesh)
+  * simple-geometry STEP (boxes / tubes, millimetres)
   * OpenSCAD source (lofted airfoils + cylinders)
   * self-contained AircraftView HTML (3D + specs + energy + planform)
   * annotated matplotlib three-view
@@ -27,6 +28,7 @@ from . import config
 from .aircraft import (BOOM_DIAMETER_M, Design, G,
                        reference_design)
 from .components import solar_array
+from .step_export import write_step
 
 IN_TO_M = 0.0254
 
@@ -612,6 +614,7 @@ def export_all(design: Design | None = None,
     paths = {
         "stl": write_stl(out / "aircraft.stl", all_pts, all_faces),
         "stl_structure": write_stl(out / "aircraft_structure.stl", *structure),
+        "step": write_step(d, out / "aircraft.step"),
         "scad": write_scad(d, out / "aircraft.scad"),
         "html": write_html(d, out / "aircraft_viewer.html", structure, cells, props,
                            energy=energy, drag=drag),

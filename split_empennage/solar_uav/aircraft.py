@@ -282,7 +282,7 @@ class Design:
     taper_ratio: float = 1.0          # tip/root; 1 = rectangular outboards
     taper_start_frac: float = 1.0     # fraction of outboard span kept rectangular
     boom_spacing_set_m: float | None = None  # None = REF boom spacing
-    one_string_per_bay: bool = False  # True: 1 series string/bay, Voc-capped
+    one_string_per_bay: bool = False  # True: 1 series string/bay, MPPT-capped
     wing_airfoil: str = "s4310"
     hstab_ar: float = config.HSTAB_AR
     vstab_ar: float = config.VSTAB_AR

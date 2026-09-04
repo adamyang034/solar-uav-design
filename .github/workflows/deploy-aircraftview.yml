@@ -25,7 +25,8 @@ jobs:
       - name: Prepare site
         run: |
           mkdir -p _site
-          cp outputs/aircraft_viewer.html _site/index.html
+          cp outputs/compare/aircraft_viewer.html _site/index.html
+          cp -R outputs/compare/lib _site/lib
           touch _site/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

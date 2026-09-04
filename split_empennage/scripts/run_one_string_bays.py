@@ -1,6 +1,6 @@
-"""One series string per panel, Voc < 19.2 V (≤26 cells), wider inboard/H-stab.
+"""One series string per panel, GVB-8 Voc/power cap, wider inboard.
 
-Outboards are capped at 26 cells by boom spacing + taper. Two packs.
+Outboards are capped by boom spacing + taper. Search tries 2 and 3 packs.
 
 Usage:  .venv/bin/python scripts/run_one_string_bays.py
 """
@@ -33,7 +33,7 @@ def _show(d: Design, label: str):
 
 def main():
     limit = max_cells_per_string()
-    print(f"Voc < {config.BUS_V_MIN} V → max {limit} cells/string")
+    print(f"GVB-8 Voc/power cap → max {limit} cells/string")
     d0 = Design(span_m=6.0, chord_m=0.30, tail_arm_m=1.30, n_packs=2,
                 elevator_frac=0.28, one_string_per_bay=True,
                 taper_ratio=0.4, taper_start_frac=0.5,

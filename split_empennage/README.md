@@ -12,6 +12,10 @@ are not constraints. No T-tail downwash credit.
 π-tail areal build (user, FLAGGED until weigh-in). Carbon booms start at
 the wing trailing edge, not at c/4.
 
+**Energy (same scoring as the π-tail closer):** GVB-8 buck/boost strings
+(cold Voc ≤ 50 V, 210 W panel cap), 2 or 3 packs, two-day march with no
+98% refill gate. Wing areal is 0.8× the old 0.84 kg/m² model.
+
 ```bash
 .venv/bin/python split_empennage/scripts/run_phase34.py
 .venv/bin/python split_empennage/scripts/visualize.py

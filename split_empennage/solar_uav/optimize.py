@@ -259,7 +259,7 @@ def search(env: pd.DataFrame | None = None,
     tapers = list(_taper_options(taper_pairs))
     if verbose:
         if one_string_per_bay:
-            mode = "one series string per bay (Voc < 19.2 V)"
+            mode = "one series string per bay (GVB-8 Voc/power cap)"
         elif mixed_strings:
             mode = "mixed-length per bay"
         else:
@@ -407,6 +407,8 @@ def search(env: pd.DataFrame | None = None,
                                             "climb_ms": mres.climb_ms,
                                             "soc_min": mres.soc_min,
                                             "soc_end": mres.soc_end,
+                                            "soc_start": mres.soc_start,
+                                            "cycle_wh": mres.cycle_wh,
                                             "margin_wh": mres.margin_wh,
                                             "unmet_wh": mres.unmet_wh,
                                             "spilled_wh": mres.spilled_wh,
@@ -531,6 +533,8 @@ def _candidate_record(d: Design, mres, motor_key: str, pname: str,
         "climb_ms": mres.climb_ms,
         "soc_min": mres.soc_min,
         "soc_end": mres.soc_end,
+        "soc_start": mres.soc_start,
+        "cycle_wh": mres.cycle_wh,
         "margin_wh": mres.margin_wh,
         "unmet_wh": mres.unmet_wh,
         "spilled_wh": mres.spilled_wh,
@@ -548,7 +552,7 @@ def _candidate_record(d: Design, mres, motor_key: str, pname: str,
 def evaluate_design(d: Design, env: pd.DataFrame, prop_names: list[str],
                     prop_cache: dict, drive, systems: dict | None = None
                     ) -> dict | None:
-    """Hard constraints → best prop → 24 h march. None if discarded."""
+    """Hard constraints → best prop → two-day energy march. None if discarded."""
     why = _hard_constraints(d)
     if why:
         return None
@@ -597,9 +601,10 @@ def search_continuous(env: pd.DataFrame | None = None,
                       dump_path=None) -> pd.DataFrame:
     """Differential evolution over continuous aero variables.
 
-    Discrete: 2 packs, default 12L motor, Voc-legal one-string-per-bay cells,
-    inner-loop propeller. Returns every *feasible-enough* evaluation
-    (including energy misses), ranked like `search()`.
+    Discrete: 2 or 3 packs (cap 3), default 12L motor, MPPT-legal
+    one-string-per-bay cells, inner-loop propeller. Returns every
+    *feasible-enough* evaluation (including energy misses), ranked like
+    `search()`. One DE per pack count; pack count is not a DE coordinate.
     """
     from concurrent.futures import ProcessPoolExecutor
     from scipy.optimize import differential_evolution
@@ -611,7 +616,9 @@ def search_continuous(env: pd.DataFrame | None = None,
     prop_names = (list(prop_names) if prop_names is not None
                   else _prop_candidates())
     prop_cache = {n: load_prop(n) for n in prop_names}
-    n_packs = int(config.PACK_GRID[0])
+    pack_counts = tuple(int(n) for n in config.PACK_GRID)
+    if any(n < 1 or n > 3 for n in pack_counts):
+        raise ValueError(f"PACK_GRID {pack_counts} exceeds the 3-pack cap")
     bounds = _continuous_bounds()
     x0 = x_from_start(start)
     n_workers = (int(workers) if workers is not None
@@ -620,23 +627,22 @@ def search_continuous(env: pd.DataFrame | None = None,
     if verbose:
         print("  Continuous aero search (differential evolution)", flush=True)
         print(f"  Motor: {drive.spec.name}  ({motor_key})", flush=True)
-        print(f"  Packs: {n_packs}   strings: one Voc-legal per bay", flush=True)
+        print(f"  Packs: {pack_counts} (cap 3)   strings: one MPPT-legal per bay",
+              flush=True)
         print(f"  Start: span {x0[0]:.2f} m  chord {x0[1]*1000:.0f} mm  "
               f"tail {x0[2]:.2f} m  boom {x0[3]:.2f} m", flush=True)
         print(f"  Prop shortlist ({len(prop_names)}): {prop_names}", flush=True)
         print(f"  DE maxiter={maxiter}  popsize={popsize}  seed={seed}  "
               f"workers={n_workers}", flush=True)
 
-    rng = np.random.default_rng(seed)
     n_dim = len(bounds)
     n_pop = max(popsize * n_dim, n_dim + 1)
     lo = np.array([b[0] for b in bounds])
     hi = np.array([b[1] for b in bounds])
-    init = rng.random((n_pop, n_dim)) * (hi - lo) + lo
-    init[0] = np.clip(x0, lo, hi)
+    all_rows: list[dict] = []
 
     def _snapshot(rows, tag: str = ""):
-        df_tmp = _rows_to_frame(rows)
+        df_tmp = _rows_to_frame(all_rows + list(rows))
         if dump_path is not None and not df_tmp.empty:
             df_tmp.to_csv(dump_path, index=False)
         if not verbose:
@@ -648,87 +654,104 @@ def search_continuous(env: pd.DataFrame | None = None,
         print(f"  {tag} n={len(df_tmp)}  closed={int(df_tmp['closed'].sum())}  "
               f"best {best['margin_wh']:.1f} Wh  "
               f"{best['span_m']:.2f}×{best['chord_m']:.2f} m  "
-              f"{best['prop']}", flush=True)
+              f"{int(best['n_packs'])}pk  {best['prop']}", flush=True)
 
-    if n_workers <= 1:
-        systems = {n: PropulsionSystem(prop=prop_cache[n], motor=drive)
-                   for n in prop_names}
-        rows: list[dict] = []
-        seen: set[tuple] = set()
-        n_skip = 0
-
-        def objective(x):
-            nonlocal n_skip
-            x = np.asarray(x, dtype=float)
-            k = tuple(np.round(x, 5))
-            d = design_from_x(x, n_packs=n_packs, motor_name=motor_key,
-                              one_string_per_bay=one_string_per_bay)
-            row = evaluate_design(d, env, prop_names, prop_cache, drive, systems)
-            if row is None:
-                n_skip += 1
-                return 1.0e6
-            if k not in seen:
-                seen.add(k)
-                rows.append(row)
-                if verbose and len(rows) % 10 == 0:
-                    best = max(r["margin_wh"] for r in rows)
-                    print(f"  evaluated {len(rows)} (skipped {n_skip})  "
-                          f"best {best:.1f} Wh ...", flush=True)
-            return float(-row["margin_wh"])
-
-        differential_evolution(
-            objective, bounds=bounds, init=init, maxiter=maxiter,
-            popsize=popsize, seed=seed, polish=False, atol=0.5, tol=0.01,
-            updating="immediate", workers=1, disp=False)
+    for n_packs in pack_counts:
+        rng = np.random.default_rng(seed)
+        init = rng.random((n_pop, n_dim)) * (hi - lo) + lo
+        init[0] = np.clip(x0, lo, hi)
         if verbose:
-            print(f"  Done: {len(rows)} evaluated, {n_skip} skipped", flush=True)
-        return _rows_to_frame(rows)
+            print(f"  --- {n_packs} pack(s) ---", flush=True)
 
-    rows = []
-    initargs = (env, motor_key, prop_names, prop_cache, n_packs,
-                one_string_per_bay)
-    mut = 0.7
-    rec = 0.7
-    with ProcessPoolExecutor(max_workers=n_workers,
-                             initializer=_init_de_worker,
-                             initargs=initargs) as pool:
-        def eval_xs(xs):
-            packed = [np.asarray(x, dtype=float) for x in xs]
-            out = list(pool.map(_eval_vector, packed))
-            scores = []
-            for score, row in out:
-                scores.append(score)
-                if row is not None:
+        if n_workers <= 1:
+            systems = {n: PropulsionSystem(prop=prop_cache[n], motor=drive)
+                       for n in prop_names}
+            rows: list[dict] = []
+            seen: set[tuple] = set()
+            n_skip = 0
+
+            def objective(x, n_packs=n_packs):
+                nonlocal n_skip
+                x = np.asarray(x, dtype=float)
+                k = (n_packs, *np.round(x, 5))
+                d = design_from_x(x, n_packs=n_packs, motor_name=motor_key,
+                                  one_string_per_bay=one_string_per_bay)
+                row = evaluate_design(
+                    d, env, prop_names, prop_cache, drive, systems)
+                if row is None:
+                    n_skip += 1
+                    return 1.0e6
+                if k not in seen:
+                    seen.add(k)
                     rows.append(row)
-            return np.asarray(scores, dtype=float)
+                    if verbose and len(rows) % 10 == 0:
+                        best = max(r["margin_wh"] for r in rows)
+                        print(f"  evaluated {len(rows)} (skipped {n_skip})  "
+                              f"best {best:.1f} Wh ...", flush=True)
+                return float(-row["margin_wh"])
 
-        pop = np.asarray(init, dtype=float)
-        energies = eval_xs(pop)
-        _snapshot(rows, "init")
-        for gen in range(maxiter):
-            best_i = int(np.argmin(energies))
-            trials = np.empty_like(pop)
-            for i in range(n_pop):
-                idxs = [j for j in range(n_pop) if j not in (i, best_i)]
-                a, b = rng.choice(idxs, 2, replace=False)
-                mutant = np.clip(pop[best_i] + mut * (pop[a] - pop[b]), lo, hi)
-                cross = rng.random(n_dim) < rec
-                cross[int(rng.integers(n_dim))] = True
-                trials[i] = np.where(cross, mutant, pop[i])
-            t_e = eval_xs(trials)
-            better = t_e <= energies
-            pop[better] = trials[better]
-            energies[better] = t_e[better]
-            _snapshot(rows, f"gen {gen + 1}")
-            spread = float(np.std(energies))
-            if spread <= 0.5 + 0.01 * abs(float(np.mean(energies))):
-                if verbose:
-                    print(f"  DE converged at gen {gen + 1}  std={spread:.2f}",
-                          flush=True)
-                break
+            differential_evolution(
+                objective, bounds=bounds, init=init, maxiter=maxiter,
+                popsize=popsize, seed=seed, polish=False, atol=0.5, tol=0.01,
+                updating="immediate", workers=1, disp=False)
+            if verbose:
+                print(f"  Done {n_packs}pk: {len(rows)} evaluated, "
+                      f"{n_skip} skipped", flush=True)
+            all_rows.extend(rows)
+            _snapshot([], f"{n_packs}pk done")
+            continue
+
+        rows = []
+        initargs = (env, motor_key, prop_names, prop_cache, n_packs,
+                    one_string_per_bay)
+        mut = 0.7
+        rec = 0.7
+        with ProcessPoolExecutor(max_workers=n_workers,
+                                 initializer=_init_de_worker,
+                                 initargs=initargs) as pool:
+            def eval_xs(xs):
+                packed = [np.asarray(x, dtype=float) for x in xs]
+                out = list(pool.map(_eval_vector, packed))
+                scores = []
+                for score, row in out:
+                    scores.append(score)
+                    if row is not None:
+                        rows.append(row)
+                return np.asarray(scores, dtype=float)
+
+            pop = np.asarray(init, dtype=float)
+            energies = eval_xs(pop)
+            _snapshot(rows, f"{n_packs}pk init")
+            for gen in range(maxiter):
+                best_i = int(np.argmin(energies))
+                trials = np.empty_like(pop)
+                for i in range(n_pop):
+                    idxs = [j for j in range(n_pop) if j not in (i, best_i)]
+                    a, b = rng.choice(idxs, 2, replace=False)
+                    mutant = np.clip(
+                        pop[best_i] + mut * (pop[a] - pop[b]), lo, hi)
+                    cross = rng.random(n_dim) < rec
+                    cross[int(rng.integers(n_dim))] = True
+                    trials[i] = np.where(cross, mutant, pop[i])
+                t_e = eval_xs(trials)
+                better = t_e <= energies
+                pop[better] = trials[better]
+                energies[better] = t_e[better]
+                _snapshot(rows, f"{n_packs}pk gen {gen + 1}")
+                spread = float(np.std(energies))
+                if spread <= 0.5 + 0.01 * abs(float(np.mean(energies))):
+                    if verbose:
+                        print(f"  DE converged at gen {gen + 1}  "
+                              f"std={spread:.2f}", flush=True)
+                    break
+
+        if verbose:
+            print(f"  Done {n_packs}pk: {len(rows)} evaluated "
+                  f"(parallel, {n_workers} workers)", flush=True)
+        all_rows.extend(rows)
 
     if verbose:
-        print(f"  Done: {len(rows)} evaluated (parallel, {n_workers} workers)",
+        print(f"  Done: {len(all_rows)} evaluated across {pack_counts} packs",
               flush=True)
-    return _rows_to_frame(rows)
+    return _rows_to_frame(all_rows)
 

@@ -77,7 +77,7 @@ def test_mass_and_geometry():
     check("pack count is an integer", isinstance(d.n_packs, int), str(d.n_packs))
     check("strings fit in bays", d.solar_feasible(),
           f"strings {d.n_strings} max {d.max_strings()}")
-    check("string length <= boost MPPT limit",
+    check("string length <= GVB-8 MPPT limit",
           d.cells_per_string <= max_cells_per_string(),
           str(max_cells_per_string()))
     bays = d.solar_bays()
