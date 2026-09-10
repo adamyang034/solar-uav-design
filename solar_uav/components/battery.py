@@ -1,12 +1,12 @@
-"""Phase 2 — Upgrade Energy GOLD V1 6S2P (Amprius SA03) battery bank model.
+"""Phase 2 — parallel 6S pack bank.
 
 Energy-based SOC model with an OCV curve, internal-resistance losses, the
-80% usable window (SOC floor 0.20), and the hard 6 A per-pack charge limit
+80% usable window (SOC floor 0.20), and the hard per-pack charge limit
 with CV taper near full. Pack count is a discrete optimizer variable.
 
-FLAGGED: the OCV curve is a generic high-energy Li-ion (silicon anode) shape
-and the internal resistance is an estimate; replace both with bench data
-from an actual pack (Phase 6).
+FLAGGED: the OCV curve is a generic high-energy Li-ion shape and the
+internal resistance is an estimate. Pack Wh for the 36 Ah / 2 kg study
+uses GOLD V1 mean voltage, not 22.2 V nominal.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def pack_ocv(soc):
 
 @dataclass
 class BatteryBank:
-    """n_packs GOLD V1 packs in parallel on the 6S bus."""
+    """n_packs in parallel on the 6S bus."""
 
     n_packs: int
     soc: float = 1.0

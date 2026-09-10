@@ -95,12 +95,16 @@ BUS_V_MAX = 25.2
 COLD_CELL_T_C = 10.0              # FLAGGED: coldest operating cell temp (dawn)
 
 # ---------------------------------------------------------------------------
-# Battery — Upgrade Energy GOLD V1 6S2P Amprius SA03 (product page)
+# Battery — 6S 36 Ah, 2.0 kg (user). Multiple packs in PACK_GRID.
+# FLAGGED: no datasheet Wh / charge / discharge. Energy uses the GOLD V1
+# mean pack voltage (483 Wh / 23.68 Ah ≈ 20.40 V), not 22.2 V nominal.
+# Charge stays at 6 A/pack (stricter than 0.25C × 36 Ah = 9 A). Discharge
+# cap stays 313 W/pack — do not raise with Ah without a datasheet.
 # ---------------------------------------------------------------------------
-PACK_ENERGY_WH = 483.0
-PACK_CAPACITY_AH = 23.68
-PACK_MASS_KG = 1.278
-PACK_CHARGE_MAX_A = 6.0           # hard datasheet limit (~0.25C)
+PACK_CAPACITY_AH = 36.0
+PACK_MASS_KG = 2.0
+PACK_ENERGY_WH = 36.0 * 483.0 / 23.68   # ≈ 734.3 Wh
+PACK_CHARGE_MAX_A = 6.0
 PACK_DISCHARGE_SUSTAINED_W = 313.0
 PACK_BURST_A = 72.0
 SOC_MIN = 0.20                    # user: 80% usable window

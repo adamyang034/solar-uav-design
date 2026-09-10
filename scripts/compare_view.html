@@ -121,18 +121,24 @@
   .key { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin: 8px 0 12px; }
   .key i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 4px;
            vertical-align: -1px; }
-  header select {
-    background: var(--card); color: var(--ink); border: 1px solid var(--border);
-    border-radius: 6px; padding: 5px 10px; font: inherit; min-width: 200px;
-  }
+  .combo-sliders { display: flex; gap: 22px; align-items: flex-end; flex-wrap: wrap; }
+  .slider-block { display: flex; flex-direction: column; gap: 2px; min-width: 240px; }
+  .slider-k { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+              color: var(--muted); font-weight: 650; }
+  .slider-ticks { display: flex; justify-content: space-between; gap: 8px;
+                  font-size: 11px; color: var(--muted); }
+  .slider-ticks span.on { color: var(--ink); font-weight: 650; }
+  .slider-block input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
+  .table-wrap { overflow-x: auto; }
   table.side { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   table.side th, table.side td { padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: right; }
   table.side th:first-child, table.side td:first-child { text-align: left; color: var(--muted); }
   table.side th { color: var(--ink); font-weight: 650; }
   table.side tr.sec td { padding-top: 16px; font-size: 11px; letter-spacing: 0.08em;
                          text-transform: uppercase; color: var(--muted); font-weight: 650; text-align: left; }
-  table.side td.best { color: var(--ok); font-weight: 650; }
-  table.side td.worst { color: var(--bad); }
+  table.side th.grp { text-align: center; font-size: 11px; letter-spacing: 0.04em;
+                      text-transform: uppercase; color: var(--muted); border-bottom: none; }
+  table.side th.sub { font-size: 12px; }
 </style>
 </head>
 <body>
@@ -144,7 +150,18 @@
       </svg>
       AircraftView
     </div>
-    <select id="cfg-select" aria-label="Configuration"></select>
+    <div class="combo-sliders">
+      <label class="slider-block">
+        <span class="slider-k">Layout</span>
+        <input type="range" id="layout-slider" min="0" max="2" step="1" aria-label="Layout">
+        <div class="slider-ticks" id="layout-ticks"></div>
+      </label>
+      <label class="slider-block">
+        <span class="slider-k">Battery</span>
+        <input type="range" id="batt-slider" min="0" max="1" step="1" aria-label="Battery">
+        <div class="slider-ticks" id="batt-ticks"></div>
+      </label>
+    </div>
     <div class="sub" id="hdr-sub"></div>
     <span id="hdr-badge"></span>
     <div class="grow"></div>
@@ -168,13 +185,27 @@
   </main>
 </div>
 <script>
+const META = __META_JSON__;
 const CONFIGS = __CONFIGS_JSON__;
-const CFG_ORDER = Object.keys(CONFIGS);
-const _savedCfg = sessionStorage.getItem("av-cfg");
-const currentCfg = (CONFIGS[_savedCfg] && _savedCfg) || CFG_ORDER[0];
+const LAYOUTS = META.layouts;
+const BATTERIES = META.batteries;
+const CFG_ORDER = META.comboOrder;
+function comboId(layout, batt) { return layout + "__" + batt; }
+function pickSaved(key, list, fallback) {
+  const raw = sessionStorage.getItem(key);
+  if (list.some(x => x.id === raw)) return raw;
+  return fallback;
+}
+const _legacyCfg = sessionStorage.getItem("av-cfg");
+const currentLayout = pickSaved("av-layout", LAYOUTS,
+  (LAYOUTS.some(x => x.id === _legacyCfg) ? _legacyCfg : LAYOUTS[0].id));
+const currentBatt = pickSaved("av-batt", BATTERIES, BATTERIES[0].id);
+let currentCfg = comboId(currentLayout, currentBatt);
+if (!CONFIGS[currentCfg]) currentCfg = CFG_ORDER[0];
 const DATA = CONFIGS[currentCfg].payload;
 const MESH = CONFIGS[currentCfg];
 window.CONFIGS = CONFIGS;
+window.META = META;
 window.DATA = DATA;
 window.MESH = MESH;
 window.currentCfg = currentCfg;
@@ -234,22 +265,49 @@ TABS.forEach(([id, lab], i) => {
   if (btn) btn.click();
 })();
 
-(function cfgSelect() {
-  const sel = document.getElementById("cfg-select");
-  CFG_ORDER.forEach(id => {
-    const o = document.createElement("option");
-    o.value = id;
-    o.textContent = CONFIGS[id].label;
-    if (id === currentCfg) o.selected = true;
-    sel.appendChild(o);
-  });
-  sel.onchange = () => {
-    sessionStorage.setItem("av-cfg", sel.value);
+(function comboSliders() {
+  const lay = document.getElementById("layout-slider");
+  const batt = document.getElementById("batt-slider");
+  const layTicks = document.getElementById("layout-ticks");
+  const battTicks = document.getElementById("batt-ticks");
+  const li = Math.max(0, LAYOUTS.findIndex(x => x.id === currentLayout));
+  const bi = Math.max(0, BATTERIES.findIndex(x => x.id === currentBatt));
+  lay.max = String(LAYOUTS.length - 1);
+  batt.max = String(BATTERIES.length - 1);
+  lay.value = String(li);
+  batt.value = String(bi);
+  function paintTicks(host, items, idx, labelFn, slider) {
+    host.innerHTML = items.map((item, i) =>
+      `<span class="${i === idx ? "on" : ""}" data-i="${i}">${labelFn(item)}</span>`).join("");
+    host.querySelectorAll("[data-i]").forEach(sp => {
+      sp.style.cursor = "pointer";
+      sp.onclick = () => {
+        slider.value = sp.dataset.i;
+        go();
+      };
+    });
+  }
+  function go() {
+    const L = LAYOUTS[+lay.value];
+    const B = BATTERIES[+batt.value];
+    sessionStorage.setItem("av-layout", L.id);
+    sessionStorage.setItem("av-batt", B.id);
+    sessionStorage.setItem("av-cfg", comboId(L.id, B.id));
     location.reload();
-  };
+  }
+  paintTicks(layTicks, LAYOUTS, li, x => x.short, lay);
+  paintTicks(battTicks, BATTERIES, bi, x => x.label, batt);
+  lay.onchange = go;
+  batt.onchange = go;
 })();
 
-document.getElementById("hdr-sub").textContent = DATA.name;
+{
+  const c = DATA.combo || {};
+  const packs = DATA.metrics || {};
+  document.getElementById("hdr-sub").textContent =
+    (c.layout_short || "") + " · " + (c.battery_label || "") + "  ·  " + DATA.name +
+    "  ·  " + (packs.n_packs || "") + " × " + Math.round(packs.pack_wh_each || 0) + " Wh";
+}
 const closed = !!(DATA.energy && DATA.energy.closed);
 const badge = document.getElementById("hdr-badge");
 badge.className = "badge " + (closed ? "ok" : "bad");
@@ -317,7 +375,10 @@ function plotTime(e) {
       <div class="stat"><div class="v">${(e.p_night_w || 0).toFixed(1)} W</div><div class="l">Night bus</div></div>
       <div class="stat"><div class="v">${(dr.ld || 0).toFixed(1)}</div><div class="l">Night L/D</div></div>
     </div>
-    <p class="note">This is the reference airplane (REF), not a search CSV. Design day is solstice clear-sky at El Mirage. Shoulder watts decide closure — noon spill (${(e.spilled_wh||0).toFixed(1)} Wh) does not.</p>
+    <p class="note">${DATA.combo && DATA.combo.from_csv
+      ? "Phase 4 closer for this layout × battery. "
+      : "No closed search row; showing the π-tail reference (REF). "}
+      Design day is solstice clear-sky at El Mirage. Shoulder watts decide closure — noon spill (${(e.spilled_wh||0).toFixed(1)} Wh) does not.</p>
     <h2>SOC from 8:00 AM · 2.5 days</h2>
     <div class="chart spark"><canvas id="sparkSoc"></canvas></div>
     <div class="grid3" style="margin-top:22px">${sectionsHtml(DATA.specs.find(s => s.id === "overview") || {sections:[]})}</div>`;
@@ -733,7 +794,15 @@ function plotTime(e) {
 (function compare() {
   const el = document.getElementById("compare");
   if (!el) return;
-  const ids = CFG_ORDER;
+  const layIds = LAYOUTS.map(x => x.id);
+  const battIds = BATTERIES.map(x => x.id);
+  const ids = [];
+  battIds.forEach(b => layIds.forEach(L => ids.push(comboId(L, b))));
+  const head = "<tr><th rowspan='2'>Metric</th>" + BATTERIES.map(b =>
+    `<th class="grp" colspan="${LAYOUTS.length}">${b.label} · ${b.detail}</th>`
+  ).join("") + "</tr><tr>" + BATTERIES.map(() =>
+    LAYOUTS.map(L => `<th class="sub">${L.short}</th>`).join("")
+  ).join("") + "</tr>";
   const rows = [
     ["sec", "Layout"],
     ["Span", c => num(c.dims.span_m, 3, " m"), "max"],
@@ -750,7 +819,17 @@ function plotTime(e) {
     ["Motors / props", c => String(c.metrics.n_motors ?? "—") + "  ·  " + (c.metrics.prop || "—")],
     ["sec", "Mass & energy"],
     ["Mass", c => num(c.dims.mass_kg || c.mass.total.mass, 3, " kg"), "min"],
-    ["Packs", c => String(c.metrics.n_packs ?? "—") + " × 483 Wh"],
+    ["Packs", c => {
+      const n = c.metrics.n_packs;
+      const wh = c.metrics.pack_wh_each;
+      if (n == null || wh == null) return "—";
+      return n + " × " + Math.round(wh) + " Wh";
+    }],
+    ["Pack mass", c => {
+      const n = c.metrics.n_packs, m = c.metrics.pack_mass_kg;
+      if (n == null || m == null) return "—";
+      return n + " × " + Number(m).toFixed(2) + " kg";
+    }],
     ["Pack energy", c => num(c.metrics.pack_wh, 0, " Wh")],
     ["Cells / strings", c => (c.metrics.n_cells ?? "—") + "  ·  " + (c.metrics.string_plan || "—")],
     ["Closed", c => (c.energy && c.energy.closed) ? "yes" : "no", "closed"],
@@ -795,7 +874,10 @@ function plotTime(e) {
     if (!vals.length) return "";
     const v = raw(CONFIGS[id].payload, row);
     if (!isFinite(v)) return "";
-    if (sense === "closed") return v ? "best" : "worst";
+    if (sense === "closed") {
+      if (vals.every(x => x === vals[0])) return "";
+      return v ? "best" : "worst";
+    }
     const best = sense === "min" ? Math.min(...vals) : Math.max(...vals);
     const worst = sense === "min" ? Math.max(...vals) : Math.min(...vals);
     if (vals.every(x => x === vals[0])) return "";
@@ -803,8 +885,6 @@ function plotTime(e) {
     if (v === worst) return "worst";
     return "";
   }
-  const head = "<tr><th>Metric</th>" + ids.map(id =>
-    `<th>${CONFIGS[id].label}</th>`).join("") + "</tr>";
   const body = rows.map(row => {
     if (row[0] === "sec") {
       return `<tr class="sec"><td colspan="${1 + ids.length}">${row[1]}</td></tr>`;
@@ -815,8 +895,8 @@ function plotTime(e) {
     }).join("") + "</tr>";
   }).join("");
   el.innerHTML = `
-    <p class="note">Same mission score (two-day march, 20% SOC floor, no 98% refill) and GVB-8 buck/boost MPPT on all three. Boom tube diameters are left as each configuration’s current model. Green / red mark best / worst where a direction is meaningful.</p>
-    <table class="side">${head}${body}</table>`;
+    <p class="note">Same mission score (two-day march, 20% SOC floor, no 98% refill) and GVB-8 buck/boost MPPT on every combo. GOLD V1 is 483 Wh / 1.28 kg; the 36 Ah pack is 734 Wh / 2.0 kg at the same mean voltage, 6 A charge. Green / red mark best / worst across all six where a direction is meaningful.</p>
+    <div class="table-wrap"><table class="side">${head}${body}</table></div>`;
 })();
 </script>
 <script type="module">

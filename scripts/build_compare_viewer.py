@@ -1,4 +1,4 @@
-"""Build the three-config AircraftView (dropdown + compare table).
+"""Build AircraftView for every layout × battery combo.
 
 Usage:
   .venv/bin/python scripts/build_compare_viewer.py
@@ -20,26 +20,72 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = Path(__file__).with_name("compare_view.html")
 OUT_DIR = ROOT / "outputs" / "compare"
 
-FORKS = [
+# GOLD V1 mean voltage is kept for the 36 Ah study (conservative vs 22.2 V).
+_GOLD_WH = 483.0
+_GOLD_AH = 23.68
+_GOLD_KG = 1.278
+
+BATTERIES = [
+    {
+        "id": "gold_v1",
+        "label": "GOLD V1",
+        "detail": "6S 23.7 Ah · 1.28 kg",
+        "pack": {
+            "PACK_ENERGY_WH": _GOLD_WH,
+            "PACK_CAPACITY_AH": _GOLD_AH,
+            "PACK_MASS_KG": _GOLD_KG,
+            "PACK_CHARGE_MAX_A": 6.0,
+        },
+    },
+    {
+        "id": "6s_36ah",
+        "label": "6S 36 Ah",
+        "detail": "6S 36 Ah · 2.0 kg",
+        "pack": {
+            "PACK_ENERGY_WH": 36.0 * _GOLD_WH / _GOLD_AH,
+            "PACK_CAPACITY_AH": 36.0,
+            "PACK_MASS_KG": 2.0,
+            "PACK_CHARGE_MAX_A": 6.0,
+        },
+    },
+]
+
+LAYOUTS = [
     {
         "id": "pi_tail",
         "label": "Single empennage (π-tail)",
+        "short": "π-tail",
         "root": ROOT,
-        "csv": ROOT / "outputs" / "phase4_candidates.csv",
+        "csv": {
+            "gold_v1": ROOT / "outputs" / "phase4_candidates.csv",
+            "6s_36ah": ROOT / "outputs" / "battery_36ah" / "pi_tail_phase4.csv",
+        },
     },
     {
         "id": "split",
         "label": "Split empennage",
+        "short": "Split",
         "root": ROOT / "split_empennage",
-        "csv": ROOT / "split_empennage" / "outputs" / "phase4_candidates.csv",
+        "csv": {
+            "gold_v1": ROOT / "split_empennage" / "outputs" / "phase4_candidates.csv",
+            "6s_36ah": ROOT / "outputs" / "battery_36ah" / "split_phase4.csv",
+        },
     },
     {
         "id": "conventional",
         "label": "Conventional",
+        "short": "Conv.",
         "root": ROOT / "conventional",
-        "csv": ROOT / "conventional" / "outputs" / "phase4_candidates.csv",
+        "csv": {
+            "gold_v1": ROOT / "conventional" / "outputs" / "phase4_candidates.csv",
+            "6s_36ah": ROOT / "outputs" / "battery_36ah" / "conventional_phase4.csv",
+        },
     },
 ]
+
+
+def combo_id(layout_id: str, battery_id: str) -> str:
+    return f"{layout_id}__{battery_id}"
 
 
 def _purge_solar_uav():
@@ -66,6 +112,11 @@ def _stl_b64(write_stl, mesh, name: str) -> str:
     return b64
 
 
+def _apply_pack(config, pack: dict):
+    for key, value in pack.items():
+        setattr(config, key, float(value) if key != "PACK_CAPACITY_AH" else float(value))
+
+
 def _design_from_csv(optimize, load_prop, csv: Path, reference_design, config):
     if csv.exists():
         import pandas as pd
@@ -76,17 +127,18 @@ def _design_from_csv(optimize, load_prop, csv: Path, reference_design, config):
             prop = load_prop(pname)
             d.prop_diameter_in = prop.diameter_in or d.prop_diameter_in
             d.prop_name = pname
-            return d
+            return d, True
     d = reference_design()
     prop = load_prop(config.REF_PROP)
     d.prop_diameter_in = prop.diameter_in or d.prop_diameter_in
     d.prop_name = config.REF_PROP
-    return d
+    return d, False
 
 
-def bundle_fork(spec: dict) -> dict:
+def bundle_combo(layout: dict, battery: dict) -> dict:
     _purge_solar_uav()
-    root = spec["root"]
+    root = layout["root"]
+    csv = layout["csv"][battery["id"]]
     sys.path.insert(0, str(root))
     try:
         from solar_uav import config, optimize
@@ -98,18 +150,33 @@ def bundle_fork(spec: dict) -> dict:
         from solar_uav.components.propulsion import load_prop
         from solar_uav.viewer_data import payload as viewer_payload
 
-        d = _design_from_csv(
-            optimize, load_prop, spec["csv"], reference_design, config)
+        _apply_pack(config, battery["pack"])
+        d, from_csv = _design_from_csv(
+            optimize, load_prop, csv, reference_design, config)
         energy = mission_snapshot(d)
         v_night = energy.get("v_night_ms")
         drag = drag_snapshot(d, v_ms=v_night)
-        print(f"  {spec['id']}: {d.span_m:.2f}×{d.chord_m:.2f} m  "
+        cid = combo_id(layout["id"], battery["id"])
+        print(f"  {cid}: {d.span_m:.2f}×{d.chord_m:.2f} m  "
               f"{d.string_plan_label()}  {d.n_cells} cells  "
               f"{d.prop_name}  {d.mass_kg:.2f} kg  packs={d.n_packs}  "
-              f"closed={bool((energy or {}).get('closed'))}  "
+              f"csv={from_csv}  closed={bool((energy or {}).get('closed'))}  "
               f"margin={(energy or {}).get('margin_wh')}",
               flush=True)
         data = viewer_payload(d, energy, drag)
+        pack_wh = float(config.PACK_ENERGY_WH)
+        data["combo"] = {
+            "layout_id": layout["id"],
+            "layout_label": layout["label"],
+            "layout_short": layout["short"],
+            "battery_id": battery["id"],
+            "battery_label": battery["label"],
+            "battery_detail": battery["detail"],
+            "from_csv": from_csv,
+            "pack_wh": pack_wh,
+            "pack_ah": float(config.PACK_CAPACITY_AH),
+            "pack_mass_kg": float(config.PACK_MASS_KG),
+        }
         data["metrics"] = {
             "n_motors": int(config.N_MOTORS),
             "n_packs": int(d.n_packs),
@@ -117,12 +184,17 @@ def bundle_fork(spec: dict) -> dict:
             "string_plan": d.string_plan_label(),
             "prop": d.prop_name,
             "motor": d.motor_name,
-            "pack_wh": float(d.n_packs * config.PACK_ENERGY_WH),
+            "pack_wh": float(d.n_packs * pack_wh),
+            "pack_wh_each": pack_wh,
+            "pack_mass_kg": float(config.PACK_MASS_KG),
             "boom_od_mm": float(config.BOOM_DIAMETER_M * 1000.0),
         }
         data["dims"]["mass_kg"] = float(d.mass_kg)
         return {
-            "label": spec["label"],
+            "id": cid,
+            "label": f"{layout['short']} · {battery['label']}",
+            "layout_id": layout["id"],
+            "battery_id": battery["id"],
             "payload": data,
             "struct": _stl_b64(write_stl, mesh_structure(d), "structure"),
             "cells": _stl_b64(write_stl, mesh_cells(d), "cells"),
@@ -135,13 +207,25 @@ def bundle_fork(spec: dict) -> dict:
 
 
 def main():
-    print("Building compare viewer…", flush=True)
+    print("Building compare viewer (layout × battery)…", flush=True)
     configs = {}
-    for spec in FORKS:
-        configs[spec["id"]] = bundle_fork(spec)
+    combo_order = []
+    for batt in BATTERIES:
+        for layout in LAYOUTS:
+            cid = combo_id(layout["id"], batt["id"])
+            combo_order.append(cid)
+            configs[cid] = bundle_combo(layout, batt)
+    meta = {
+        "layouts": [{"id": L["id"], "label": L["label"], "short": L["short"]}
+                    for L in LAYOUTS],
+        "batteries": [{"id": B["id"], "label": B["label"], "detail": B["detail"]}
+                      for B in BATTERIES],
+        "comboOrder": combo_order,
+    }
     template = TEMPLATE.read_text(encoding="utf-8")
     html = (template
-            .replace("__TITLE__", "AircraftView — three configurations")
+            .replace("__TITLE__", "AircraftView — layout × battery")
+            .replace("__META_JSON__", json.dumps(meta, separators=(",", ":")))
             .replace("__CONFIGS_JSON__", json.dumps(
                 configs, separators=(",", ":"), default=_json_default)))
     OUT_DIR.mkdir(parents=True, exist_ok=True)
