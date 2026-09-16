@@ -18,7 +18,7 @@ from . import config, environment
 from .aircraft import RHO_DAY, RHO_NIGHT, Design
 from .components.propulsion import PropulsionSystem, load_prop, shortlist_props
 from .components.motor import drive_for
-from .mission import simulate
+from .mission import simulate, candidate_score, rank_candidates
 
 
 def _prop_candidates(max_n: int | None = None) -> list[str]:
@@ -381,6 +381,11 @@ def search(env: pd.DataFrame | None = None,
                                             "p_day_w": mres.p_day_w,
                                             "climb_ms": mres.climb_ms,
                                             "soc_min": mres.soc_min,
+                                            "morning_soc": mres.morning_soc,
+                                            "next_morning_soc": mres.next_morning_soc,
+                                            "morning_soc_change": mres.morning_soc_change,
+                                            "morning_charge_hour": mres.morning_charge_hour,
+                                            "objective_soc": mres.objective_soc,
                                             "soc_end": mres.soc_end,
                                             "margin_wh": mres.margin_wh,
                                             "unmet_wh": mres.unmet_wh,
@@ -402,7 +407,7 @@ def search(env: pd.DataFrame | None = None,
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
-    df = df.sort_values(["closed", "margin_wh"], ascending=[False, False])
+    df = rank_candidates(df)
     return df.reset_index(drop=True)
 
 
@@ -411,7 +416,7 @@ def winner(df: pd.DataFrame) -> pd.Series | None:
         return None
     closed = df[df["closed"]]
     pool = closed if len(closed) else df
-    return pool.iloc[0]
+    return rank_candidates(pool).iloc[0]
 
 
 # ---------------------------------------------------------------------------
@@ -521,6 +526,11 @@ def _candidate_record(d: Design, mres, motor_key: str, pname: str,
         "p_day_w": mres.p_day_w,
         "climb_ms": mres.climb_ms,
         "soc_min": mres.soc_min,
+        "morning_soc": mres.morning_soc,
+        "next_morning_soc": mres.next_morning_soc,
+        "morning_soc_change": mres.morning_soc_change,
+        "morning_charge_hour": mres.morning_charge_hour,
+        "objective_soc": mres.objective_soc,
         "soc_end": mres.soc_end,
         "margin_wh": mres.margin_wh,
         "unmet_wh": mres.unmet_wh,
@@ -623,10 +633,10 @@ def search_continuous(env: pd.DataFrame | None = None,
             rows.append(row)
             n_eval += 1
             if verbose and n_eval % 10 == 0:
-                best = max(r["margin_wh"] for r in rows)
+                best = 100.0 * min(rows, key=candidate_score)["objective_soc"]
                 print(f"  evaluated {n_eval} (skipped {n_skip})  "
-                      f"best {best:.1f} Wh ...", flush=True)
-        return float(-row["margin_wh"])
+                      f"best morning SOC {best:.2f}% ...", flush=True)
+        return candidate_score(row)
 
     # Seed the population with the start point plus a few bound corners.
     rng = np.random.default_rng(seed)
@@ -648,6 +658,5 @@ def search_continuous(env: pd.DataFrame | None = None,
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
-    df = df.sort_values(["closed", "margin_wh"], ascending=[False, False])
+    df = rank_candidates(df)
     return df.reset_index(drop=True)
-

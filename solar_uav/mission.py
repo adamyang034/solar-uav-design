@@ -1,12 +1,13 @@
-"""Phase 4 — energy-closure time march (settled 24 h loop).
+"""Phase 4 — nondepleting morning-to-morning energy scoring.
 
 Walks a design through a design-day irradiance profile at night-loiter /
 day-cruise speeds, charging the battery only up to the 6 A/pack limit.
 
-Launch day starts full (ground charge) at the last afternoon surplus.
-Day 2 starts wherever day 1 ended — no reset. Closed means the repeating
-day stays above the 20% SOC floor and does not get poorer (start ≤ end).
-Margin is watt-hours above 20% at the worst point of day 2.
+Launch starts full at the last afternoon surplus. Measure SOC immediately
+before the next morning's net charging, then march to the following morning
+without resetting the battery. That next SOC must be at least the first.
+Optimize the lower morning SOC; report Wh reserve separately. The 89-hour
+display trace is a separate visualization, not the scoring horizon.
 """
 
 from __future__ import annotations
@@ -22,8 +23,8 @@ from .components.battery import BatteryBank
 from .components.propulsion import PropulsionSystem
 from .components.solar_array import SolarArray
 
-# Numerical slack on day-2 end ≥ start. Not a 98% refill gate.
-CYCLE_SLACK_WH = 0.5
+# Floating-point tolerance only; not a permitted daily energy loss.
+MORNING_SOC_TOL = 1e-9
 
 
 @dataclass
@@ -71,8 +72,54 @@ class MissionResult:
     reason: str
     mass_kg: float = 0.0
     prop_notes: tuple[str, ...] = ()
-    soc_start: float = float("nan")   # day-2 start (repeating-loop phase)
-    cycle_wh: float = float("nan")    # (soc_end - soc_start) * E on day 2
+    soc_start: float = float("nan")   # current morning, before charging
+    cycle_wh: float = float("nan")    # morning-to-morning change in Wh
+    morning_soc: float = float("nan")
+    next_morning_soc: float = float("nan")
+    morning_soc_change: float = float("nan")
+    morning_charge_hour: float = float("nan")
+    objective_soc: float = float("nan")
+
+
+def candidate_score(row) -> float:
+    """Minimize: feasible first, then maximize the lower morning SOC.
+
+    Historical CSVs without morning fields must be reevaluated to use this
+    objective. They retain their historical order in rank_candidates.
+    """
+    soc = float(row.get("objective_soc", float("nan")))
+    if not np.isfinite(soc):
+        return 1e6
+    if bool(row["closed"]):
+        return -100.0 * float(np.clip(soc, 0.0, 1.0))
+    violation = (
+        max(0.0, config.SOC_MIN - float(row["soc_min"]))
+        + max(0.0, -float(row["morning_soc_change"]) - MORNING_SOC_TOL)
+        + max(0.0, config.CLIMB_RATE_REQ_MS - float(row["climb_ms"]))
+          / max(config.CLIMB_RATE_REQ_MS, 1e-9)
+        + max(0.0, float(row["unmet_wh"])) / 100.0
+    )
+    return min(999999.0, 1000.0 + 1000.0 * violation)
+
+
+def rank_candidates(df: pd.DataFrame) -> pd.DataFrame:
+    """Sort new candidates by scoring objective; preserve legacy semantics."""
+    if "objective_soc" not in df.columns:
+        return df.sort_values(["closed", "margin_wh"], ascending=[False, False])
+    out = df.copy()
+    out["optimizer_score"] = out.apply(candidate_score, axis=1)
+    return out.sort_values("optimizer_score", kind="stable")
+
+
+def morning_charge_index(hours: np.ndarray, p_net: np.ndarray) -> int | None:
+    """First daily transition to net solar surplus, before battery charging.
+
+    The clear-sky design day has one such transition. No transition means
+    the requested morning comparison is undefined and cannot pass.
+    """
+    charging = np.asarray(p_net) > 0.0
+    starts = np.flatnonzero(charging & ~np.roll(charging, 1))
+    return int(starts[np.argmin(hours[starts])]) if starts.size else None
 
 
 @dataclass
@@ -178,8 +225,10 @@ def simulate(design: Design,
              prop_sys: PropulsionSystem,
              dt_min: int = 5,
              scales: MissionScales | None = None) -> MissionResult:
-    """Launch-full day 1, then a repeating day 2. `env` is a 1-minute
-    (or coarser) profile from `environment.design_day`."""
+    """Launch-full overnight, then score one morning-to-morning cycle.
+
+    `env` must cover a complete day at one-minute resolution.
+    """
     sc = scales or MissionScales()
     bp = _bus_powers(design, env, prop_sys, dt_min, sc)
     if bp is None:
@@ -220,14 +269,18 @@ def simulate(design: Design,
 
     bank = BatteryBank(n_packs=design.n_packs, soc=1.0,
                        energy_scale=sc.pack_energy)
-    order = np.arange(start_idx, start_idx + n) % n
-    _march_day(bank, order, p_solar, p_load, p_net, dt_s, dt_h, av_w)
+    morning_idx = morning_charge_index(hours, p_net)
+    score_idx = morning_idx if morning_idx is not None else 0
+    warm_steps = (score_idx - start_idx) % n or n
+    warm_order = np.arange(start_idx, start_idx + warm_steps) % n
+    _march_day(bank, warm_order, p_solar, p_load, p_net, dt_s, dt_h, av_w)
 
     soc_start = float(bank.soc)
+    order = np.arange(score_idx, score_idx + n) % n
     soc, spilled, unmet, solar_wh, prop_wh = _march_day(
         bank, order, p_solar, p_load, p_net, dt_s, dt_h, av_w)
 
-    soc_min = float(soc.min())
+    soc_min = float(min(soc_start, soc.min()))
     soc_end = float(soc[-1])
     e_tot = bank.energy_total_wh
     reserve_wh = (soc_min - config.SOC_MIN) * e_tot
@@ -235,26 +288,30 @@ def simulate(design: Design,
     margin_wh = float(reserve_wh)
     if unmet > 0.5:
         margin_wh = min(margin_wh, -unmet)
-    periodic_ok = cycle_wh >= -CYCLE_SLACK_WH
+    morning_change = soc_end - soc_start
+    periodic_ok = morning_idx is not None and morning_change >= -MORNING_SOC_TOL
     closed = (soc_min >= config.SOC_MIN - 1e-6
               and unmet < 0.5
               and climb >= config.CLIMB_RATE_REQ_MS
               and periodic_ok)
 
     reasons = []
+    if morning_idx is None:
+        reasons.append("no morning transition to net charging")
     if soc_min < config.SOC_MIN or unmet >= 0.5:
         reasons.append(f"SOC floor violated (min {soc_min:.3f}, unmet {unmet:.0f} Wh)")
     if climb < config.CLIMB_RATE_REQ_MS:
         reasons.append(f"climb {climb:.2f} m/s < {config.CLIMB_RATE_REQ_MS}")
     if not periodic_ok:
         reasons.append(
-            f"ratchet (day-2 {soc_start:.3f} -> {soc_end:.3f}, {cycle_wh:.0f} Wh)")
+            f"morning depletion ({soc_start:.6f} -> {soc_end:.6f}, {cycle_wh:.3f} Wh)")
     reason = "ok" if closed else "; ".join(reasons) or "infeasible"
     notes = tuple(n for n in (fl_n.get("notes"), fl_d.get("notes")) if n)
     if notes:
         reason = (reason + "; " if reason != "ok" else "") + "; ".join(notes)
 
-    hours_wrapped = _wrap_hours(hours, start_idx)
+    # Include both morning boundaries; SOC[k] is after interval k.
+    hours_wrapped = np.arange(n + 1, dtype=float) * dt_h
     night_h = float(is_night.mean() * 24.0)
     av_wh = av_w * 24.0
 
@@ -274,16 +331,21 @@ def simulate(design: Design,
         p_day_w=p_day,
         climb_ms=climb,
         battery_night_h=night_h,
-        start_hour=float(hours[start_idx]),
-        soc_trace=soc,
+        start_hour=float(hours[score_idx]),
+        soc_trace=np.concatenate(([soc_start], soc)),
         hours=hours_wrapped,
-        p_solar=p_solar[order],
-        p_load=p_load[order],
+        p_solar=np.append(p_solar[order], p_solar[score_idx]),
+        p_load=np.append(p_load[order], p_load[score_idx]),
         reason=reason,
         mass_kg=mass,
         prop_notes=notes,
         soc_start=soc_start,
         cycle_wh=float(cycle_wh),
+        morning_soc=soc_start if morning_idx is not None else float("nan"),
+        next_morning_soc=soc_end if morning_idx is not None else float("nan"),
+        morning_soc_change=morning_change,
+        morning_charge_hour=float(hours[score_idx]) if morning_idx is not None else float("nan"),
+        objective_soc=min(soc_start, soc_end) if morning_idx is not None else float("nan"),
     )
 
 
@@ -292,13 +354,12 @@ def display_trace(design: Design,
                   prop_sys: PropulsionSystem,
                   *,
                   start_hod: float = 8.0,
-                  duration_h: float = 60.0,
+                  duration_h: float = config.DESIGN_MISSION_HOURS,
                   dt_min: int = 5,
                   scales: MissionScales | None = None) -> DisplayTrace | None:
     """SOC=1 at `start_hod`, then `duration_h` of the repeating design day.
 
-    Viewer plots only. Scoring still uses `simulate` (afternoon-full day 1,
-    then the day-2 loop).
+    Viewer plots only. Scoring uses the morning-to-morning comparison.
     """
     sc = scales or MissionScales()
     bp = _bus_powers(design, env, prop_sys, dt_min, sc)

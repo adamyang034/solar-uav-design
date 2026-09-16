@@ -78,10 +78,9 @@ ENCAPSULATION_TRANSMISSION = 0.97   # FLAGGED: thin fiberglass, 2-5% typical.
 WIRING_MISMATCH_SOILING_EFF = 0.965  # FLAGGED: combined array losses
 
 # ---------------------------------------------------------------------------
-# MPPT — Genasun GVB-8-Li-25.0V (datasheet). Input 0–60 V, charges 6S.
-# Same as the π-tail closer: these units buck and boost, so string Voc may
-# sit above or below the 6S bus. Remaining hard limits are the GVB-8 input
-# ratings, not "must boost."
+# MPPT: planned buck/boost controller, approximately 108 g (user 2026-09-15).
+# GVB-8-derived numbers below are provisional limits/efficiency, not verified
+# specifications of the replacement hardware. Retain buck/boost capability.
 # ---------------------------------------------------------------------------
 MPPT_EFFICIENCY = 0.95            # criteria E9 (datasheet says 95-98%)
 MPPT_MAX_INPUT_A = 8.0

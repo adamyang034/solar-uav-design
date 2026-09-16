@@ -73,6 +73,7 @@
   .panel > button.head { width: 100%; display: flex; justify-content: space-between;
                          background: none; border: 0; border-radius: 8px 8px 0 0; padding: 8px 10px; }
   .panel .body { padding: 0 10px 10px; }
+  .panel.collapsed .body { display: none; }
   .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 2px 0; }
   .row .m { color: var(--muted); }
   .mono { font-variant-numeric: tabular-nums; }
@@ -139,6 +140,20 @@
   table.side th.grp { text-align: center; font-size: 11px; letter-spacing: 0.04em;
                       text-transform: uppercase; color: var(--muted); border-bottom: none; }
   table.side th.sub { font-size: 12px; }
+  @media (max-width: 900px) {
+    .overlay.left, .overlay.right { width: calc(50% - 15px); }
+  }
+  @media (max-width: 600px) {
+    header { gap: 6px 10px; padding: 8px 10px; }
+    header .brand { flex: 1; }
+    header .grow { display: none; }
+    header .combo-sliders { order: 1; width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    header .slider-block { min-width: 0; width: auto; }
+    header .sub { order: 2; width: 100%; }
+    #hdr-badge { order: 3; }
+    #tabs { flex-wrap: nowrap; overflow-x: auto; flex-shrink: 0; padding: 6px 10px 0; }
+    #tabs .tab { white-space: nowrap; }
+  }
 </style>
 </head>
 <body>
@@ -153,7 +168,7 @@
     <div class="combo-sliders">
       <label class="slider-block">
         <span class="slider-k">Layout</span>
-        <input type="range" id="layout-slider" min="0" max="2" step="1" aria-label="Layout">
+        <input type="range" id="layout-slider" min="0" max="3" step="1" aria-label="Layout">
         <div class="slider-ticks" id="layout-ticks"></div>
       </label>
       <label class="slider-block">
@@ -278,7 +293,7 @@ TABS.forEach(([id, lab], i) => {
   batt.value = String(bi);
   function paintTicks(host, items, idx, labelFn, slider) {
     host.innerHTML = items.map((item, i) =>
-      `<span class="${i === idx ? "on" : ""}" data-i="${i}">${labelFn(item)}</span>`).join("");
+      `<span class="${i === idx ? "on" : ""}" data-i="${i}" title="${item.label}">${labelFn(item)}</span>`).join("");
     host.querySelectorAll("[data-i]").forEach(sp => {
       sp.style.cursor = "pointer";
       sp.onclick = () => {
@@ -309,11 +324,12 @@ TABS.forEach(([id, lab], i) => {
     "  ·  " + (packs.n_packs || "") + " × " + Math.round(packs.pack_wh_each || 0) + " Wh";
 }
 const closed = !!(DATA.energy && DATA.energy.closed);
+const passed = DATA.study ? DATA.study.passed : closed;
 const badge = document.getElementById("hdr-badge");
-badge.className = "badge " + (closed ? "ok" : "bad");
-badge.textContent = closed
-  ? ("CLOSED  +" + (DATA.energy.margin_wh || 0).toFixed(1) + " Wh")
-  : "OPEN";
+badge.className = "badge " + (passed ? "ok" : "bad");
+badge.textContent = passed
+  ? ("PASS  +" + (DATA.energy.margin_wh || 0).toFixed(1) + " Wh")
+  : "NOT PASSING";
 
 function kvList(rows) {
   return "<dl>" + rows.map(([k, v]) =>
@@ -338,7 +354,7 @@ function chartColors() {
 }
 function plotTime(e) {
   const start = Number(e.plot_start_hod ?? 8);
-  const dur = Number(e.plot_duration_h ?? 60);
+  const dur = Number(e.plot_duration_h ?? 89);
   const clock = (h, minutes) => {
     const abs = start + h;
     const day = Math.max(0, Math.floor((abs + 1e-9) / 24));
@@ -362,26 +378,31 @@ function plotTime(e) {
 
 (function overview() {
   const e = DATA.energy || {}, d = DATA.dims || {}, dr = DATA.drag || {};
+  const formatSoc = v => v == null || !Number.isFinite(v) ? "N/A" : (100 * v).toFixed(2) + "%";
   const m = DATA.mass.total.mass;
   const el = document.getElementById("overview");
   el.innerHTML = `
     <div class="hero">
       <div class="stat"><div class="v">${m.toFixed(2)} kg</div><div class="l">Mass</div></div>
-      <div class="stat ${closed ? "ok" : "bad"}"><div class="v">${closed ? "Closed" : "Open"}</div>
+      <div class="stat ${passed ? "ok" : "bad"}"><div class="v">${passed ? "Pass" : "Not passing"}</div>
         <div class="l">${(e.margin_wh >= 0 ? "+" : "") + (e.margin_wh || 0).toFixed(1)} Wh above 20%</div></div>
-      <div class="stat warn"><div class="v">${(100 * (e.soc_min || 0)).toFixed(1)}%</div><div class="l">Dawn SOC</div></div>
+      <div class="stat warn"><div class="v">${e.objective_soc == null ? "N/A" : (100 * e.objective_soc).toFixed(1) + "%"}</div><div class="l">Morning SOC objective</div></div>
       <div class="stat"><div class="v">${d.n_cells}</div><div class="l">${d.string_plan} cells</div></div>
       <div class="stat"><div class="v">${d.n_packs}</div><div class="l">Packs · ${(e.pack_wh || 0).toFixed(0)} Wh</div></div>
       <div class="stat"><div class="v">${(e.p_night_w || 0).toFixed(1)} W</div><div class="l">Night bus</div></div>
       <div class="stat"><div class="v">${(dr.ld || 0).toFixed(1)}</div><div class="l">Night L/D</div></div>
     </div>
     <p class="note">${DATA.combo && DATA.combo.from_csv
-      ? "Phase 4 closer for this layout × battery. "
-      : "No closed search row; showing the π-tail reference (REF). "}
+      ? "Best evaluated candidate for this layout × battery. "
+      : "No search row; showing a reference design. "}
       Design day is solstice clear-sky at El Mirage. Shoulder watts decide closure — noon spill (${(e.spilled_wh||0).toFixed(1)} Wh) does not.</p>
-    <h2>SOC from 8:00 AM · 2.5 days</h2>
+    ${DATA.study ? `<p class="note">Fresh simulation: ${formatSoc(e.objective_soc)} morning SOC. Search: ${formatSoc(DATA.study.search_morning_soc)}.
+      Design checks: ${DATA.study.hard_failure || "pass"}; yaw authority: ${DATA.study.yaw_pass ? "pass" : "fail"}; daily energy recovery: ${closed ? "pass" : "fail"}.</p>` : ""}
+    <p class="note" id="model-notes"></p>
+    <h2>SOC from 8:00 AM · ${e.plot_duration_h || 89} hours</h2>
     <div class="chart spark"><canvas id="sparkSoc"></canvas></div>
     <div class="grid3" style="margin-top:22px">${sectionsHtml(DATA.specs.find(s => s.id === "overview") || {sections:[]})}</div>`;
+  document.getElementById("model-notes").textContent = e.reason && e.reason !== "ok" ? e.reason : "";
   const hours = e.hours || [], soc = e.soc || [], floor = e.soc_floor || 0.2;
   const pt = plotTime(e);
   function drawSpark() {
@@ -397,7 +418,7 @@ function plotTime(e) {
           { data: [{x: 0, y: 100 * floor}, {x: pt.dur, y: 100 * floor}], borderColor: c.bad, pointRadius: 0, borderWidth: 1, borderDash: [4, 4] },
         ] },
       options: {
-        responsive: true, maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false, animation: false,
         plugins: { legend: { display: false }, tooltip: { enabled: false } },
         scales: {
           x: pt.xScale(c, { title: { display: false }, ticks: { color: c.muted, stepSize: 12, maxRotation: 0, callback: v => pt.clock(v, false) } }),
@@ -554,7 +575,7 @@ function plotTime(e) {
       <div class="chart"><canvas id="socChart"></canvas></div>
       <div class="chart"><canvas id="pwrChart"></canvas></div>
     </div>
-    <p class="note">Display march: 100% SOC at 8:00 AM, then 2.5 repeating solstice days (to 8:00 PM on day 3). Closure numbers below are still the scored day-2 loop. Grey SOC = array dark. Amber = min SOC in this window. Shoulder watts decide closure, not noon spill (${(e.spilled_wh||0).toFixed(1)} Wh spilled).</p>
+    <p class="note">Display trace: 100% SOC at 8:00 AM, then ${e.plot_duration_h || 89} hours of repeating solstice conditions. Acceptance uses the separate morning-to-morning comparison and 20% reserve floor. Grey SOC = array dark. Amber = minimum SOC in this display window. Noon spill: ${(e.spilled_wh||0).toFixed(1)} Wh per scored day.</p>
     <div class="grid3" style="margin-top:18px">${sectionsHtml(DATA.specs.find(s => s.id === "power") || {sections:[]})}</div>`;
   const hours = e.hours || [];
   const soc = e.soc || [];
@@ -573,7 +594,7 @@ function plotTime(e) {
       },
     };
     const common = {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false, animation: false,
       interaction: { mode: "index", intersect: false },
       plugins: { legend: { labels: { color: c.ink } }, tooltip: tip },
     };
@@ -811,6 +832,7 @@ function plotTime(e) {
     ["Wing area", c => num(c.dims.wing_area_m2, 3, " m²")],
     ["Aspect ratio", c => num(c.dims.aspect_ratio, 1), "max"],
     ["Taper λ", c => num(c.dims.taper_ratio, 2)],
+    ["Tip washout", c => num(c.dims.washout_tip_deg, 2, "°")],
     ["H-stab arm", c => num(c.dims.tail_arm_m, 3, " m")],
     ["V-stab arm", c => c.dims.vstab_arm_m != null ? num(c.dims.vstab_arm_m, 3, " m") : "—"],
     ["Boom spacing", c => num(c.dims.boom_spacing_m, 3, " m")],
@@ -833,9 +855,12 @@ function plotTime(e) {
     ["Pack energy", c => num(c.metrics.pack_wh, 0, " Wh")],
     ["Cells / strings", c => (c.metrics.n_cells ?? "—") + "  ·  " + (c.metrics.string_plan || "—")],
     ["Closed", c => (c.energy && c.energy.closed) ? "yes" : "no", "closed"],
-    ["Day-2 margin", c => num(c.energy && c.energy.margin_wh, 1, " Wh"), "max"],
+    ["Design checks", c => c.study ? (c.study.passed ? "pass" : "fail") : "not verified"],
+    ["Morning SOC", c => pct(c.energy && c.energy.objective_soc), "max"],
+    ["Search morning SOC", c => pct(c.study && c.study.search_morning_soc)],
+    ["Reserve above 20%", c => num(c.energy && c.energy.margin_wh, 1, " Wh"), "max"],
     ["SOC min", c => pct(c.energy && c.energy.soc_min), "max"],
-    ["SOC start / end", c => pct(c.energy && c.energy.soc_start) + " / " + pct(c.energy && c.energy.soc_end)],
+    ["Morning / next morning", c => pct(c.energy && c.energy.soc_start) + " / " + pct(c.energy && c.energy.soc_end)],
     ["Cycle", c => num(c.energy && c.energy.cycle_wh, 2, " Wh")],
     ["Night bus", c => num(c.energy && c.energy.p_night_w, 1, " W"), "min"],
     ["Day bus", c => num(c.energy && c.energy.p_day_w, 1, " W"), "min"],
@@ -854,8 +879,9 @@ function plotTime(e) {
   }
   function raw(c, row) {
     const fn = row[1];
+    if (row[0] === "Morning SOC") return c.energy && c.energy.objective_soc != null ? +c.energy.objective_soc : NaN;
     if (row[0] === "Mass") return +(c.dims.mass_kg || (c.mass && c.mass.total && c.mass.total.mass) || NaN);
-    if (row[0] === "Day-2 margin") return +(c.energy && c.energy.margin_wh);
+    if (row[0] === "Reserve above 20%") return +(c.energy && c.energy.margin_wh);
     if (row[0] === "SOC min") return +(c.energy && c.energy.soc_min);
     if (row[0] === "Night bus") return +(c.energy && c.energy.p_night_w);
     if (row[0] === "Day bus") return +(c.energy && c.energy.p_day_w);
@@ -895,7 +921,7 @@ function plotTime(e) {
     }).join("") + "</tr>";
   }).join("");
   el.innerHTML = `
-    <p class="note">Same mission score (two-day march, 20% SOC floor, no 98% refill) and GVB-8 buck/boost MPPT on every combo. GOLD V1 is 483 Wh / 1.28 kg; the 36 Ah pack is 734 Wh / 2.0 kg at the same mean voltage, 6 A charge. Green / red mark best / worst across all six where a direction is meaningful.</p>
+    <p class="note">Morning-to-morning SOC must not decrease; reserve floor is 20%. The 89-hour trace is visualization only. All cases assume the proposed 108 g buck/boost MPPT with provisional electrical limits. GOLD V1: 483 Wh / 1.278 kg; 36 Ah: 734 Wh / 2.0 kg, both at 6 A charge.</p>
     <div class="table-wrap"><table class="side">${head}${body}</table></div>`;
 })();
 </script>
@@ -961,7 +987,7 @@ renderer.setClearColor(0x000000, 0);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 stage.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 40);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 100);
 camera.up.set(0, 1, 0);
 const orbit = new OrbitControls(camera, renderer.domElement);
 orbit.enableDamping = true;
@@ -975,8 +1001,17 @@ let activeView = "iso";
 function setView(name) {
   const v = views[name];
   activeView = name;
-  camera.position.set(...v.pos);
-  orbit.target.set(...v.tgt);
+  const bounds = new THREE.Box3().setFromObject(struct).expandByObject(propsMesh);
+  const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+  const width = stage.clientWidth;
+  const height = Math.max(stage.clientHeight, 1);
+  const usableWidth = width > 900 ? width - 560 : width * 0.88;
+  const halfV = THREE.MathUtils.degToRad(camera.fov / 2);
+  const halfH = Math.atan(Math.tan(halfV) * Math.max(usableWidth, 100) / height);
+  const distance = 1.12 * sphere.radius / Math.sin(Math.min(halfV, halfH));
+  const direction = new THREE.Vector3(...v.pos).sub(new THREE.Vector3(...v.tgt)).normalize();
+  orbit.target.copy(sphere.center);
+  camera.position.copy(sphere.center).addScaledVector(direction, distance);
   orbit.update();
   document.querySelectorAll("[data-v]").forEach(b => b.classList.toggle("primary", b.dataset.v === name));
 }
@@ -1196,10 +1231,9 @@ function updateMass() {
 
 function panel(title, bodyHtml) {
   const wrap = document.createElement("div");
-  wrap.className = "panel";
+  wrap.className = "panel" + (window.innerWidth <= 900 ? " collapsed" : "");
   wrap.innerHTML = `<button class="head"><span>${title}</span><span>▾</span></button><div class="body">${bodyHtml}</div>`;
-  const body = wrap.querySelector(".body");
-  wrap.querySelector(".head").onclick = () => { body.style.display = body.style.display === "none" ? "" : "none"; };
+  wrap.querySelector(".head").onclick = () => wrap.classList.toggle("collapsed");
   return wrap;
 }
 
@@ -1415,7 +1449,11 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  setView(activeView);
 }
+window.matchMedia("(max-width: 900px)").addEventListener("change", event => {
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("collapsed", event.matches));
+});
 new ResizeObserver(resize).observe(stage);
 window.addEventListener("resize", resize);
 resize();

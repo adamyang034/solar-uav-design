@@ -51,8 +51,19 @@ def shortlist_props(d_min: float | None = config.PROP_DIAMETER_IN_RANGE[0],
         ["manufacturer", "diameter_in", "pitch_in"]).reset_index(drop=True)
 
 
+_PRELOADED_PROPS: dict[str, Propeller] = {}
+
+
+def register_props(props: dict[str, Propeller]) -> None:
+    """Install parent-loaded maps without concurrent catalog writes in workers."""
+    _PRELOADED_PROPS.update(props)
+    load_prop.cache_clear()
+
+
 @lru_cache(maxsize=128)
 def load_prop(name: str) -> Propeller:
+    if name in _PRELOADED_PROPS:
+        return _PRELOADED_PROPS[name]
     return Propeller.load(name)
 
 

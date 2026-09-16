@@ -20,7 +20,7 @@ from . import config, environment
 from .aircraft import RHO_DAY, RHO_NIGHT, Design
 from .components.propulsion import PropulsionSystem, load_prop, shortlist_props
 from .components.motor import drive_for
-from .mission import simulate
+from .mission import simulate, candidate_score, rank_candidates
 
 # Process-pool state for parallel differential evolution (spawn-safe).
 _DE_WORKER: dict = {}
@@ -49,7 +49,7 @@ def _eval_vector(x):
         d, w["env"], w["prop_names"], w["prop_cache"], w["drive"], w["systems"])
     if row is None:
         return 1.0e6, None
-    return float(-row["margin_wh"]), row
+    return candidate_score(row), row
 
 
 def _prop_candidates(max_n: int | None = None) -> list[str]:
@@ -343,9 +343,8 @@ def search(env: pd.DataFrame | None = None,
                                             n_skip += 1
                                             continue
                                         v_n = d.min_power_speed()
-                                        t_one = psys.max_thrust_n(
-                                            v_n, rho=RHO_NIGHT) / config.N_MOTORS
-                                        if not d.differential_thrust_yaw_ok(t_one, v_n):
+                                        t_one = 0.0  # Conventional yaw uses the rudder, not thrust asymmetry.
+                                        if not d.rudder_yaw_ok(v_n):
                                             n_skip += 1
                                             continue
                                         n_eval += 1
@@ -409,6 +408,7 @@ def search(env: pd.DataFrame | None = None,
                                             "wing_area_m2": d.wing_area,
                                             "aspect_ratio": d.aspect_ratio,
                                             "static_margin": d.static_margin(),
+                                            **d.rudder_sizing(v_n),
                                             "v_stall": d.stall_speed(),
                                             "v_night": mres.v_night,
                                             "v_day": mres.v_day,
@@ -416,6 +416,11 @@ def search(env: pd.DataFrame | None = None,
                                             "p_day_w": mres.p_day_w,
                                             "climb_ms": mres.climb_ms,
                                             "soc_min": mres.soc_min,
+                                            "morning_soc": mres.morning_soc,
+                                            "next_morning_soc": mres.next_morning_soc,
+                                            "morning_soc_change": mres.morning_soc_change,
+                                            "morning_charge_hour": mres.morning_charge_hour,
+                                            "objective_soc": mres.objective_soc,
                                             "soc_end": mres.soc_end,
                                             "soc_start": mres.soc_start,
                                             "cycle_wh": mres.cycle_wh,
@@ -439,7 +444,7 @@ def search(env: pd.DataFrame | None = None,
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
-    df = df.sort_values(["closed", "margin_wh"], ascending=[False, False])
+    df = rank_candidates(df)
     return df.reset_index(drop=True)
 
 
@@ -448,7 +453,7 @@ def winner(df: pd.DataFrame) -> pd.Series | None:
         return None
     closed = df[df["closed"]]
     pool = closed if len(closed) else df
-    return pool.iloc[0]
+    return rank_candidates(pool).iloc[0]
 
 
 # ---------------------------------------------------------------------------
@@ -472,6 +477,7 @@ def design_from_x(x, *, n_packs: int = 2, motor_name: str | None = None,
                   one_string_per_bay: bool = True) -> Design:
     """Map the continuous vector to a Design. Cells/packs/motor stay discrete."""
     vals = {k: float(v) for k, v in zip(CONTINUOUS_KEYS, np.asarray(x, dtype=float))}
+    vals.update(getattr(config, "FIXED_GEOMETRY", {}))
     lam = vals["taper_ratio"]
     f = vals["taper_start_frac"]
     if lam >= 0.995:
@@ -555,6 +561,7 @@ def _candidate_record(d: Design, mres, motor_key: str, pname: str,
         "wing_area_m2": d.wing_area,
         "aspect_ratio": d.aspect_ratio,
         "static_margin": d.static_margin(),
+        **d.rudder_sizing(v_n),
         "v_stall": d.stall_speed(),
         "v_night": mres.v_night,
         "v_day": mres.v_day,
@@ -562,6 +569,11 @@ def _candidate_record(d: Design, mres, motor_key: str, pname: str,
         "p_day_w": mres.p_day_w,
         "climb_ms": mres.climb_ms,
         "soc_min": mres.soc_min,
+        "morning_soc": mres.morning_soc,
+        "next_morning_soc": mres.next_morning_soc,
+        "morning_soc_change": mres.morning_soc_change,
+        "morning_charge_hour": mres.morning_charge_hour,
+        "objective_soc": mres.objective_soc,
         "soc_end": mres.soc_end,
         "soc_start": mres.soc_start,
         "cycle_wh": mres.cycle_wh,
@@ -583,7 +595,7 @@ def _candidate_record(d: Design, mres, motor_key: str, pname: str,
 def evaluate_design(d: Design, env: pd.DataFrame, prop_names: list[str],
                     prop_cache: dict, drive, systems: dict | None = None
                     ) -> dict | None:
-    """Hard constraints → best prop → two-day energy march. None if discarded."""
+    """Hard constraints → best prop → morning SOC comparison. None if discarded."""
     why = _hard_constraints(d)
     if why:
         return None
@@ -596,8 +608,8 @@ def evaluate_design(d: Design, env: pd.DataFrame, prop_names: list[str],
     if d.mass_kg > config.MTOW_MAX_KG:
         return None
     v_n = d.min_power_speed()
-    t_one = psys.max_thrust_n(v_n, rho=RHO_NIGHT) / config.N_MOTORS
-    if not d.differential_thrust_yaw_ok(t_one, v_n):
+    t_one = 0.0  # Conventional yaw uses the rudder, not thrust asymmetry.
+    if not d.rudder_yaw_ok(v_n):
         return None
     mres = simulate(d, env, psys)
     return _candidate_record(d, mres, d.motor_name, pname, d.one_string_per_bay,
@@ -614,9 +626,7 @@ def _rows_to_frame(rows) -> pd.DataFrame:
     keep = [k for k in keys if k in df.columns]
     if keep:
         df = df.drop_duplicates(subset=keep, keep="first")
-    return df.sort_values(
-        ["closed", "margin_wh"], ascending=[False, False]
-    ).reset_index(drop=True)
+    return rank_candidates(df).reset_index(drop=True)
 
 
 def search_continuous(env: pd.DataFrame | None = None,
@@ -687,7 +697,7 @@ def search_continuous(env: pd.DataFrame | None = None,
             return
         best = df_tmp.iloc[0]
         print(f"  {tag} n={len(df_tmp)}  closed={int(df_tmp['closed'].sum())}  "
-              f"best {best['margin_wh']:.1f} Wh  "
+              f"best morning SOC {100*best['objective_soc']:.2f}%  "
               f"{best['span_m']:.2f}×{best['chord_m']:.2f} m  "
               f"{int(best['n_packs'])}pk  {best['prop']}", flush=True)
 
@@ -720,10 +730,10 @@ def search_continuous(env: pd.DataFrame | None = None,
                     seen.add(k)
                     rows.append(row)
                     if verbose and len(rows) % 10 == 0:
-                        best = max(r["margin_wh"] for r in rows)
+                        best = 100.0 * min(rows, key=candidate_score)["objective_soc"]
                         print(f"  evaluated {len(rows)} (skipped {n_skip})  "
-                              f"best {best:.1f} Wh ...", flush=True)
-                return float(-row["margin_wh"])
+                              f"best morning SOC {best:.2f}% ...", flush=True)
+                return candidate_score(row)
 
             differential_evolution(
                 objective, bounds=bounds, init=init, maxiter=maxiter,
@@ -774,7 +784,7 @@ def search_continuous(env: pd.DataFrame | None = None,
                 energies[better] = t_e[better]
                 _snapshot(rows, f"{n_packs}pk gen {gen + 1}")
                 spread = float(np.std(energies))
-                if spread <= 0.5 + 0.01 * abs(float(np.mean(energies))):
+                if np.min(energies) < 1e6 and spread <= 0.5 + 0.01 * abs(float(np.mean(energies))):
                     if verbose:
                         print(f"  DE converged at gen {gen + 1}  "
                               f"std={spread:.2f}", flush=True)
@@ -789,4 +799,3 @@ def search_continuous(env: pd.DataFrame | None = None,
         print(f"  Done: {len(all_rows)} evaluated across {pack_counts} packs",
               flush=True)
     return _rows_to_frame(all_rows)
-

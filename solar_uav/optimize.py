@@ -21,7 +21,7 @@ from . import config, environment
 from .aircraft import RHO_DAY, RHO_NIGHT, Design
 from .components.propulsion import PropulsionSystem, load_prop, shortlist_props
 from .components.motor import drive_for
-from .mission import simulate
+from .mission import simulate, candidate_score, rank_candidates
 
 # Process-pool state for parallel differential evolution (spawn-safe).
 _DE_WORKER: dict = {}
@@ -50,7 +50,7 @@ def _eval_vector(x):
         d, w["env"], w["prop_names"], w["prop_cache"], w["drive"], w["systems"])
     if row is None:
         return 1.0e6, None
-    return float(-row["margin_wh"]), row
+    return candidate_score(row), row
 
 
 def _prop_candidates(max_n: int | None = None) -> list[str]:
@@ -416,6 +416,11 @@ def search(env: pd.DataFrame | None = None,
                                             "p_day_w": mres.p_day_w,
                                             "climb_ms": mres.climb_ms,
                                             "soc_min": mres.soc_min,
+                                            "morning_soc": mres.morning_soc,
+                                            "next_morning_soc": mres.next_morning_soc,
+                                            "morning_soc_change": mres.morning_soc_change,
+                                            "morning_charge_hour": mres.morning_charge_hour,
+                                            "objective_soc": mres.objective_soc,
                                             "soc_end": mres.soc_end,
                                             "soc_start": mres.soc_start,
                                             "cycle_wh": mres.cycle_wh,
@@ -441,7 +446,7 @@ def search(env: pd.DataFrame | None = None,
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
-    df = df.sort_values(["closed", "margin_wh"], ascending=[False, False])
+    df = rank_candidates(df)
     df = df.reset_index(drop=True)
     w = winner(df)
     if w is not None:
@@ -454,7 +459,7 @@ def winner(df: pd.DataFrame) -> pd.Series | None:
         return None
     closed = df[df["closed"]]
     pool = closed if len(closed) else df
-    return pool.iloc[0]
+    return rank_candidates(pool).iloc[0]
 
 
 def _is_better_winner(row, prev) -> bool:
@@ -463,7 +468,7 @@ def _is_better_winner(row, prev) -> bool:
     c_new, c_old = bool(row["closed"]), bool(prev["closed"])
     if c_new != c_old:
         return c_new
-    return float(row["margin_wh"]) > float(prev["margin_wh"]) + 1e-9
+    return candidate_score(row) < candidate_score(prev) - 1e-9
 
 
 def write_winner_step(design: Design, path: Path | None = None) -> Path | None:
@@ -601,6 +606,11 @@ def _candidate_record(d: Design, mres, motor_key: str, pname: str,
         "p_day_w": mres.p_day_w,
         "climb_ms": mres.climb_ms,
         "soc_min": mres.soc_min,
+        "morning_soc": mres.morning_soc,
+        "next_morning_soc": mres.next_morning_soc,
+        "morning_soc_change": mres.morning_soc_change,
+        "morning_charge_hour": mres.morning_charge_hour,
+        "objective_soc": mres.objective_soc,
         "soc_end": mres.soc_end,
         "soc_start": mres.soc_start,
         "cycle_wh": mres.cycle_wh,
@@ -622,7 +632,7 @@ def _candidate_record(d: Design, mres, motor_key: str, pname: str,
 def evaluate_design(d: Design, env: pd.DataFrame, prop_names: list[str],
                     prop_cache: dict, drive, systems: dict | None = None
                     ) -> dict | None:
-    """Hard constraints → best prop → two-day energy march. None if discarded."""
+    """Hard constraints → best prop → morning SOC comparison. None if discarded."""
     why = _hard_constraints(d)
     if why:
         return None
@@ -653,9 +663,7 @@ def _rows_to_frame(rows) -> pd.DataFrame:
     keep = [k for k in keys if k in df.columns]
     if keep:
         df = df.drop_duplicates(subset=keep, keep="first")
-    return df.sort_values(
-        ["closed", "margin_wh"], ascending=[False, False]
-    ).reset_index(drop=True)
+    return rank_candidates(df).reset_index(drop=True)
 
 
 def search_continuous(env: pd.DataFrame | None = None,
@@ -726,7 +734,7 @@ def search_continuous(env: pd.DataFrame | None = None,
             return
         best = df_tmp.iloc[0]
         print(f"  {tag} n={len(df_tmp)}  closed={int(df_tmp['closed'].sum())}  "
-              f"best {best['margin_wh']:.1f} Wh  "
+              f"best morning SOC {100*best['objective_soc']:.2f}%  "
               f"{best['span_m']:.2f}×{best['chord_m']:.2f} m  "
               f"{int(best['n_packs'])}pk  {best['prop']}", flush=True)
 
@@ -761,10 +769,10 @@ def search_continuous(env: pd.DataFrame | None = None,
                     rows.append(row)
                     _maybe_write_winner_step(d, row, best_holder, verbose)
                     if verbose and len(rows) % 10 == 0:
-                        best = max(r["margin_wh"] for r in rows)
+                        best = 100.0 * min(rows, key=candidate_score)["objective_soc"]
                         print(f"  evaluated {len(rows)} (skipped {n_skip})  "
-                              f"best {best:.1f} Wh ...", flush=True)
-                return float(-row["margin_wh"])
+                              f"best morning SOC {best:.2f}% ...", flush=True)
+                return candidate_score(row)
 
             differential_evolution(
                 objective, bounds=bounds, init=init, maxiter=maxiter,
@@ -815,7 +823,7 @@ def search_continuous(env: pd.DataFrame | None = None,
                 energies[better] = t_e[better]
                 _snapshot(rows, f"{n_packs}pk gen {gen + 1}")
                 spread = float(np.std(energies))
-                if spread <= 0.5 + 0.01 * abs(float(np.mean(energies))):
+                if np.min(energies) < 1e6 and spread <= 0.5 + 0.01 * abs(float(np.mean(energies))):
                     if verbose:
                         print(f"  DE converged at gen {gen + 1}  "
                               f"std={spread:.2f}", flush=True)
@@ -834,4 +842,3 @@ def search_continuous(env: pd.DataFrame | None = None,
     if w is not None:
         write_winner_step(design_from_row(w))
     return df
-

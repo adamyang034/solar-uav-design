@@ -1,0 +1,565 @@
+{
+  "combo": "conventional__gold_v1",
+  "battery": {
+    "PACK_ENERGY_WH": 483.0,
+    "PACK_CAPACITY_AH": 23.68,
+    "PACK_MASS_KG": 1.278,
+    "PACK_CHARGE_MAX_A": 6.0
+  },
+  "pack_counts": [
+    2,
+    3
+  ],
+  "start": {
+    "span_m": 6.0,
+    "chord_m": 0.3914543799707209,
+    "tail_arm_m": 2.0,
+    "vstab_arm_m": 2.2178466475326144,
+    "boom_spacing_m": 1.04,
+    "taper_ratio": 0.4074997255316657,
+    "taper_start_frac": 0.1541866514642911,
+    "washout_tip_deg": 0.0,
+    "washout_start_frac": 0.1006772589950577,
+    "elevator_frac": 0.3265152836067247
+  },
+  "maxiter": 18,
+  "popsize": 6,
+  "method": "surrogate",
+  "samples": 72,
+  "rounds": 3,
+  "starts": 3,
+  "diameter_radius": 2.5,
+  "pitch_radius": 2.0,
+  "workers": 6,
+  "seed": 7,
+  "objective": "maximize lower morning SOC, next >= current",
+  "bounds": {
+    "span_m": [
+      4.5,
+      6.0,
+      6.0
+    ],
+    "chord_m": [
+      0.3,
+      0.52,
+      0.31
+    ],
+    "tail_arm_m": [
+      0.8,
+      2.0,
+      0.9
+    ],
+    "vstab_arm_m": [
+      0.8,
+      3.0,
+      1.2
+    ],
+    "boom_spacing_m": [
+      1.04,
+      2.21,
+      1.3
+    ],
+    "taper_ratio": [
+      0.4,
+      1.0,
+      0.6
+    ],
+    "taper_start_frac": [
+      0.0,
+      1.0,
+      0.5
+    ],
+    "washout_tip_deg": [
+      0.0,
+      5.0,
+      0.0
+    ],
+    "washout_start_frac": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "elevator_frac": [
+      0.22,
+      0.4,
+      0.34
+    ],
+    "v_cruise_ms": [
+      8.0,
+      18.0,
+      12.0
+    ],
+    "hstab_ar": [
+      3.5,
+      6.0,
+      4.5
+    ],
+    "vstab_ar": [
+      1.5,
+      3.5,
+      1.5
+    ],
+    "aileron_chord_frac": [
+      0.2,
+      0.3,
+      0.25
+    ]
+  },
+  "status": "complete",
+  "source_seed": "/Users/adamyang/Documents/Codex/2026-08-23/referenced-chatgpt-conversation-this-is-an/solar-uav-design/outputs/morning_soc_rerun_2026-09-15/conventional__gold_v1.csv",
+  "started": 1789512721.6878169,
+  "config": {
+    "FT_TO_M": 0.3048,
+    "LATITUDE_DEG": 34.646849,
+    "LONGITUDE_DEG": -117.605977,
+    "SITE_ALTITUDE_M": 864.7176000000001,
+    "ALTITUDE_M": 864.7176000000001,
+    "TIMEZONE": "America/Los_Angeles",
+    "DESIGN_MISSION_HOURS": 89.0,
+    "MISSION_WINDOW": [
+      "2027-05-01",
+      "2027-07-31"
+    ],
+    "SOLSTICE_DATE": "2027-06-21",
+    "MTOW_MAX_KG": 12.0,
+    "WINGSPAN_MAX_M": 6.0,
+    "CRUISE_ALT_AGL_M": 121.92,
+    "MIN_AIRSPEED_WIND_MS": 7.7,
+    "STALL_MARGIN_FACTOR": 1.2,
+    "LOITER_STALL_FACTOR": 1.3,
+    "V_CRUISE_START_MS": 12.0,
+    "V_CRUISE_TOL_MS": 0.01,
+    "CLIMB_RATE_REQ_MS": 1.5,
+    "AVIONICS_POWER_W": 5.0,
+    "ASB_VLM_IN_SCORING": true,
+    "ASB_AEROBUILDUP_SC": true,
+    "ASB_MESH_INERTIA": true,
+    "ASB_XFOIL_CD": true,
+    "CELL_BIN_DEFAULT": "I",
+    "CELL_GAMMA_PMP": -0.0032,
+    "CELL_BETA_VMP": -0.0018,
+    "CELL_SIDE_M": 0.125,
+    "CELL_PITCH_M": 0.13,
+    "CELL_MASS_KG": 0.0065,
+    "CELL_INTERCONNECT_MASS_KG": 0.0015,
+    "CELL_T_MAX_C": 75.0,
+    "CELL_T_REF_C": 25.0,
+    "ENCAPSULATION_TRANSMISSION": 0.97,
+    "WIRING_MISMATCH_SOILING_EFF": 0.965,
+    "MPPT_EFFICIENCY": 0.95,
+    "MPPT_MAX_INPUT_A": 8.0,
+    "MPPT_MAX_PV_VOC_V": 50.0,
+    "MPPT_MAX_PV_ABS_V": 60.0,
+    "MPPT_MAX_PANEL_W": 210.0,
+    "MPPT_MASS_KG": 0.108,
+    "BUS_V_MIN": 19.2,
+    "BUS_V_NOM": 22.2,
+    "BUS_V_MAX": 25.2,
+    "COLD_CELL_T_C": 10.0,
+    "PACK_CAPACITY_AH": 23.68,
+    "PACK_MASS_KG": 1.278,
+    "PACK_ENERGY_WH": 483.0,
+    "PACK_CHARGE_MAX_A": 6.0,
+    "PACK_DISCHARGE_SUSTAINED_W": 313.0,
+    "PACK_BURST_A": 72.0,
+    "SOC_MIN": 0.2,
+    "PACK_R_INTERNAL_OHM": 0.045,
+    "N_SERIES_CELLS": 6,
+    "MOTOR_DEFAULT": "A40-12L-V4-kv410-direct",
+    "N_MOTORS": 1,
+    "N_BOOMS": 1,
+    "N_FUSELAGES": 1,
+    "N_VSTABS": 1,
+    "REQUIRE_PAIRED_ROTATION_PROPS": false,
+    "GEARBOX_EFFICIENCY": 0.96,
+    "ESC_EFFICIENCY": 0.95,
+    "ESC_DUTY_MIN": 0.5,
+    "MOTOR_SCALE_REF": "A40-12L-V4-kv410-direct",
+    "KV_GRID": [
+      180,
+      200,
+      220,
+      240,
+      260,
+      280,
+      300,
+      320,
+      340,
+      360,
+      380,
+      400,
+      420,
+      440,
+      460,
+      480,
+      500,
+      520,
+      540,
+      560,
+      580,
+      600,
+      620,
+      640,
+      660,
+      680,
+      700,
+      720,
+      740,
+      760,
+      780,
+      800,
+      820,
+      840,
+      860,
+      880,
+      900
+    ],
+    "PROP_THRUST_DERATE": 0.92,
+    "PROP_POWER_INFLATE": 1.08,
+    "PROP_SANITY_REL": 0.15,
+    "WING_AREAL_MASS": 0.672,
+    "TAIL_AREAL_MASS": 0.44,
+    "BOOM_MASS_PER_M": 0.29,
+    "BOOM_DIAMETER_M": 0.038099999999999995,
+    "WING_TOP_USABLE_CHORD_FRAC": 1.0,
+    "HSTAB_ELEVATOR_CHORD_FRAC": 0.3,
+    "SOLAR_ON_HSTAB": false,
+    "TAIL_VOLUME_H": 0.5,
+    "TAIL_VOLUME_V": 0.03,
+    "HSTAB_SPAN_FRAC_MAX": 0.45,
+    "STATIC_MARGIN_TARGET": 0.12,
+    "STATIC_MARGIN_MIN": 0.08,
+    "ELEVATOR_MAX_DEG": 15.0,
+    "PITCH_ACCEL_MIN_RAD_S2": 0.3,
+    "HSTAB_AR": 4.5,
+    "VSTAB_AR": 1.5,
+    "PROP_LE_OFFSET_M": 0.7,
+    "FUSELAGE_LENGTH_REF_M": 0.98,
+    "FUSELAGE_WETTED_REF_MM2": 173128.421,
+    "FUSELAGE_WETTED_REF_M2": 0.173128421,
+    "AILERON_CHORD_FRAC": 0.25,
+    "AILERON_TIP_KEEP_OUT_M": 0.04,
+    "AILERON_MAX_DEG": 20.0,
+    "ELEVON_ROLL_DEG": 0.0,
+    "ROLL_RATE_MIN_DEG_S": 35.0,
+    "ROLL_DAMPING_EXTRA": 1.15,
+    "FIN_SIDEWASH_ETA": 0.9,
+    "RUDDER_CHORD_FRAC": 0.3,
+    "RUDDER_MAX_DEG": 20.0,
+    "REQUIRE_YAW_STABILITY": false,
+    "CN_BETA_MIN": 0.1,
+    "CN_R_ABS_MIN": 0.03,
+    "YAW_TRIM_SIDESLIP_DEG": 5.0,
+    "YAW_RATE_MIN_DEG_S": 5.0,
+    "OPT_KEYS": [
+      "span_m",
+      "chord_m",
+      "tail_arm_m",
+      "vstab_arm_m",
+      "boom_spacing_m",
+      "taper_ratio",
+      "taper_start_frac",
+      "washout_tip_deg",
+      "washout_start_frac",
+      "elevator_frac"
+    ],
+    "SPAN_BOUNDS_M": [
+      4.5,
+      6.0
+    ],
+    "CHORD_BOUNDS_M": [
+      0.3,
+      0.52
+    ],
+    "TAIL_ARM_BOUNDS_M": [
+      0.8,
+      2.0
+    ],
+    "VSTAB_ARM_BOUNDS_M": [
+      0.8,
+      3.0
+    ],
+    "BOOM_SPACING_BOUNDS_M": [
+      1.04,
+      2.21
+    ],
+    "TAPER_RATIO_BOUNDS": [
+      0.4,
+      1.0
+    ],
+    "TAPER_START_BOUNDS": [
+      0.0,
+      1.0
+    ],
+    "WASHOUT_TIP_BOUNDS_DEG": [
+      0.0,
+      5.0
+    ],
+    "WASHOUT_START_BOUNDS": [
+      0.0,
+      1.0
+    ],
+    "ELEVATOR_FRAC_BOUNDS": [
+      0.22,
+      0.4
+    ],
+    "V_CRUISE_BOUNDS_MS": [
+      8.0,
+      18.0
+    ],
+    "SPAN_GRID_M": [
+      4.5,
+      5.0,
+      5.5,
+      6.0
+    ],
+    "CHORD_GRID_M": [
+      0.31,
+      0.36,
+      0.4,
+      0.45,
+      0.52
+    ],
+    "TAIL_ARM_GRID_M": [
+      0.8,
+      0.9,
+      1.0,
+      1.1,
+      1.2,
+      1.3,
+      1.45,
+      1.6,
+      1.8,
+      2.0
+    ],
+    "PACK_GRID": [
+      2,
+      3
+    ],
+    "CELLS_PER_STRING_GRID": [
+      12,
+      16,
+      20,
+      24,
+      29
+    ],
+    "ELEVATOR_FRAC_GRID": [
+      0.22,
+      0.28,
+      0.34
+    ],
+    "TAPER_RATIO_GRID": [
+      1.0,
+      0.6,
+      0.4
+    ],
+    "TAPER_START_FRAC_GRID": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "WASHOUT_TIP_DEG_GRID": [
+      0.0,
+      2.0,
+      3.5,
+      5.0
+    ],
+    "WASHOUT_START_FRAC_GRID": [
+      0.0,
+      0.35,
+      0.7
+    ],
+    "BOOM_SPACING_GRID_M": [
+      1.3,
+      1.56,
+      1.69,
+      2.08
+    ],
+    "PROP_DIAMETER_IN_RANGE": [
+      16.0,
+      null
+    ],
+    "T_AMB_MIN_C": 24.0,
+    "T_AMB_MAX_C": 40.0,
+    "IRRADIANCE_SIGMA": 0.03,
+    "MC_N_SAMPLES": 256,
+    "MC_SEED": 7,
+    "MC_IRRADIANCE": [
+      1.0,
+      0.03,
+      0.88,
+      1.08
+    ],
+    "MC_T_CELL_K": [
+      1.0,
+      0.1,
+      0.7,
+      1.3
+    ],
+    "MC_T_CELL_OFFSET_C": [
+      0.0,
+      3.0,
+      -8.0,
+      8.0
+    ],
+    "MC_ARRAY_EFF": [
+      1.0,
+      0.03,
+      0.9,
+      1.08
+    ],
+    "MC_MASS": [
+      1.02,
+      0.05,
+      0.92,
+      1.18
+    ],
+    "MC_DRAG": [
+      1.0,
+      0.08,
+      0.85,
+      1.25
+    ],
+    "MC_PROP_THRUST": [
+      0.92,
+      0.04,
+      0.8,
+      1.02
+    ],
+    "MC_PROP_POWER": [
+      1.08,
+      0.04,
+      0.98,
+      1.22
+    ],
+    "MC_AVIONICS_W": [
+      5.0,
+      0.8,
+      4.0,
+      8.0
+    ],
+    "MC_PACK_ENERGY": [
+      1.0,
+      0.03,
+      0.9,
+      1.05
+    ],
+    "REF_SPAN_M": 5.941386490218956,
+    "REF_CHORD_M": 0.3003892655409105,
+    "REF_TAIL_ARM_M": 1.8128111074638409,
+    "REF_VSTAB_ARM_M": 2.017610639571034,
+    "REF_N_PACKS": 2,
+    "REF_ELEVATOR_FRAC": 0.3484145817711697,
+    "REF_TAPER_RATIO": 0.40892714181410544,
+    "REF_TAPER_START_FRAC": 0.6160624333211883,
+    "REF_WASHOUT_TIP_DEG": 0.0061595600997428335,
+    "REF_WASHOUT_START_FRAC": 0.5518452524953686,
+    "REF_BOOM_SPACING_M": 1.797257332756562,
+    "REF_ONE_STRING_PER_BAY": true,
+    "REF_MOTOR": "A40-12L-V4-kv410-direct",
+    "REF_PROP": "20x15E"
+  },
+  "surrogate_summary": {
+    "method": "aerosandbox_surrogate",
+    "exact_evaluations": 295,
+    "catalog_props": 51,
+    "elapsed_s": 54.2828175839968,
+    "candidates": 289,
+    "warnings": [
+      "Response-surface proposals are not exact physics or guaranteed global optima.",
+      "Final results contain only original-model evaluations of actual catalog SKUs."
+    ]
+  },
+  "finished": 1789512797.11662,
+  "candidates": 289,
+  "passing": 62,
+  "winner": {
+    "span_m": 6.0,
+    "chord_m": 0.39145438,
+    "tail_arm_m": 2.0,
+    "vstab_arm_m": 2.2178466475,
+    "elevator_frac": 0.3265152836,
+    "taper_ratio": 0.4074997255,
+    "taper_start_frac": 0.1541866515,
+    "washout_tip_deg": 0.0,
+    "washout_start_frac": 0.100677259,
+    "y_washout_m": 3.0,
+    "tip_chord_m": 0.1595175524,
+    "y_taper_m": 0.9023828956,
+    "boom_spacing_m": 1.04,
+    "boom_spacing_set_m": 1.04,
+    "hstab_chord_m": 0.1846542887,
+    "tail_volume_h": 0.5,
+    "tail_volume_v": 0.03,
+    "aileron_y_inner_m": 1.4912452197,
+    "aileron_span_each_m": 1.4687547803,
+    "roll_rate_deg_s": 36.0270897205,
+    "roll_aileron_deg_s": 36.0270897205,
+    "roll_elevon_deg_s": 0.0,
+    "cn_beta": 0.07270543,
+    "cn_r": -0.0537498314,
+    "cn_r_control": -0.0720730089,
+    "izz_kgm2": 14.0244078569,
+    "yaw_rate_deg_s": 41.8063002367,
+    "yaw_rate_max_deg_s": 41.8063002367,
+    "yaw_rate_level_deg_s": 17.2878442896,
+    "yaw_correct_s": 0.5265202279,
+    "incidence_wing_deg": 3.771564897,
+    "incidence_hstab_deg": -0.3822019251,
+    "n_packs": 3,
+    "cells_per_string": "one_per_bay",
+    "one_string_per_bay": true,
+    "string_plan": "28+28+24",
+    "n_strings": 3,
+    "n_cells": 80,
+    "inboard_cells": 24,
+    "outboard_cells": 28,
+    "hstab_cells": 0,
+    "motor": "A40-12L-V4-kv410-direct",
+    "prop": "MJ-20x13E",
+    "mass_kg": 9.8398379973,
+    "wing_area_m2": 1.8622116232,
+    "aspect_ratio": 19.3318522729,
+    "static_margin": 0.2949372407,
+    "rudder_span_m": 0.4761355863,
+    "rudder_installed_fraction": 0.3,
+    "rudder_required_fraction": 0.10318677,
+    "rudder_installed_chord_m": 0.0952271173,
+    "rudder_required_chord_m": 0.0327539288,
+    "rudder_installed_area_m2": 0.0453410193,
+    "rudder_required_area_m2": 0.0155953111,
+    "rudder_available_moment_nm": 10.4860843149,
+    "rudder_required_moment_nm": 6.1498528901,
+    "rudder_sideslip_margin": 0.7050951466,
+    "rudder_rate_margin": 7.3612600473,
+    "rudder_sizing_ok": true,
+    "v_stall": 8.7304136427,
+    "v_night": 11.3495377355,
+    "v_day": 11.5376748314,
+    "p_night_w": 73.7455837261,
+    "p_day_w": 74.6987301247,
+    "climb_ms": 10.7978960198,
+    "soc_min": 0.3765314116,
+    "morning_soc": 0.3765314123,
+    "next_morning_soc": 0.3765314116,
+    "morning_soc_change": -7e-10,
+    "morning_charge_hour": 7.8333333333,
+    "objective_soc": 0.3765314116,
+    "soc_end": 0.3765314116,
+    "soc_start": 0.3765314123,
+    "cycle_wh": -9.663e-07,
+    "margin_wh": 255.7940154192,
+    "unmet_wh": 0.0,
+    "spilled_wh": 22.2492885758,
+    "solar_wh": 1806.4091586478,
+    "propulsion_wh": 1659.6637600118,
+    "battery_night_h": 13.75,
+    "closed": true,
+    "reason": "ok",
+    "boom_length_m": 2.4404461151,
+    "aft_boom_length_m": 0.0,
+    "fuselage_length_m": 1.09145438,
+    "packing_ok": true,
+    "optimizer_score": -37.6531411607
+  }
+}

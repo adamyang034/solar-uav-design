@@ -390,13 +390,18 @@ def mission_snapshot(design: Design) -> dict:
             motor=drive_for(design.motor_name))
         env = environment.design_day(config.SOLSTICE_DATE)
         r = simulate(design, env, psys)
-        tr = display_trace(design, env, psys, start_hod=8.0, duration_h=60.0)
+        tr = display_trace(design, env, psys, start_hod=8.0, duration_h=config.DESIGN_MISSION_HOURS)
     except Exception:
         return {}
     e_tot = float(design.n_packs * config.PACK_ENERGY_WH)
     from .viewer_data import attach_traces
     snap = {
         "margin_wh": float(r.margin_wh),
+        "morning_soc": float(r.morning_soc),
+        "next_morning_soc": float(r.next_morning_soc),
+        "morning_soc_change": float(r.morning_soc_change),
+        "morning_charge_hour": float(r.morning_charge_hour),
+        "objective_soc": float(r.objective_soc),
         "reserve_wh": float((r.soc_min - config.SOC_MIN) * e_tot),
         "cycle_wh": float(r.cycle_wh),
         "soc_min": float(r.soc_min),

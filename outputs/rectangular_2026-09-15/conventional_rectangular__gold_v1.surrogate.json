@@ -1,0 +1,296 @@
+{
+  "method": "aerosandbox_surrogate",
+  "exact_evaluations": 335,
+  "catalog_props": 51,
+  "elapsed_s": 53.799090749933384,
+  "candidates": 325,
+  "iterations": [
+    {
+      "iteration": 1,
+      "fits": {
+        "apc": {
+          "status": "fit",
+          "valid": 88,
+          "total": 94,
+          "ridge": 0.1,
+          "held_out_soc_rmse_pp": 3.906214704719809
+        },
+        "mejzlik": {
+          "status": "fit",
+          "valid": 87,
+          "total": 91,
+          "ridge": 0.1,
+          "held_out_soc_rmse_pp": 3.27759256393296
+        }
+      },
+      "proposals": [
+        {
+          "family": "apc",
+          "relaxed": {
+            "span_m": 6.0,
+            "chord_m": 0.42262174969947874,
+            "tail_arm_m": 2.0,
+            "vstab_arm_m": 1.908976271490514,
+            "boom_spacing_m": 1.04,
+            "elevator_frac": 0.32385328064453506,
+            "n_packs": 2.933801275458803,
+            "diameter_in": 19.08344229786621,
+            "pitch_in": 13.532024534448066
+          },
+          "predicted_soc": 0.2981578805338178,
+          "status": "Solve_Succeeded",
+          "props": [
+            "20x13E",
+            "205x14E",
+            "19x12E",
+            "21x13E",
+            "20x15E",
+            "18x12E",
+            "17x12E"
+          ],
+          "packs": [
+            2,
+            3
+          ],
+          "failures": [
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Maximum_Iterations_Exceeded'"
+          ],
+          "trust_radius": 0.2,
+          "incumbent_soc": 0.27595776046320664,
+          "verified_neighborhood_soc": 0.2510643216896503
+        },
+        {
+          "family": "mejzlik",
+          "relaxed": {
+            "span_m": 6.0,
+            "chord_m": 0.3787495125275352,
+            "tail_arm_m": 2.0,
+            "vstab_arm_m": 2.25380452765092,
+            "boom_spacing_m": 1.0493693278838931,
+            "elevator_frac": 0.3327264011831278,
+            "n_packs": 2.9984107349712446,
+            "diameter_in": 19.99999883059322,
+            "pitch_in": 12.999998427066224
+          },
+          "predicted_soc": 0.2834439815332629,
+          "status": "Solve_Succeeded",
+          "props": [
+            "MJ-20x13E",
+            "MJ-20x13EL",
+            "MJ-21x13E",
+            "MJ-21x13EL",
+            "MJ-21x13p5EL",
+            "MJ-20p5x12ELW",
+            "MJ-20p5x12EW",
+            "MJ-21x14EL",
+            "MJ-22x12EW",
+            "MJ-20x11E",
+            "MJ-20x11EW",
+            "MJ-20x11EWL"
+          ],
+          "packs": [
+            2,
+            3
+          ],
+          "failures": [
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Maximum_Iterations_Exceeded'"
+          ],
+          "trust_radius": 0.2,
+          "incumbent_soc": 0.28464650740566555,
+          "verified_neighborhood_soc": 0.2956692826401368
+        }
+      ]
+    },
+    {
+      "iteration": 2,
+      "fits": {
+        "apc": {
+          "status": "fit",
+          "valid": 108,
+          "total": 114,
+          "ridge": 0.01,
+          "held_out_soc_rmse_pp": 4.912635168133311
+        },
+        "mejzlik": {
+          "status": "fit",
+          "valid": 119,
+          "total": 123,
+          "ridge": 0.1,
+          "held_out_soc_rmse_pp": 3.370439126776708
+        }
+      },
+      "proposals": [
+        {
+          "family": "apc",
+          "relaxed": {
+            "span_m": 6.0,
+            "chord_m": 0.3940182359906457,
+            "tail_arm_m": 2.0,
+            "vstab_arm_m": 2.144943778677403,
+            "boom_spacing_m": 1.04,
+            "elevator_frac": 0.3205087557043609,
+            "n_packs": 2.849291975508299,
+            "diameter_in": 19.459254900281262,
+            "pitch_in": 12.814567158635136
+          },
+          "predicted_soc": 0.2888006273671192,
+          "status": "Solve_Succeeded",
+          "props": [
+            "20x13E",
+            "19x12E",
+            "21x13E",
+            "18x12E",
+            "205x14E",
+            "20x11E",
+            "17x12E"
+          ],
+          "packs": [
+            2,
+            3
+          ],
+          "failures": [
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Maximum_Iterations_Exceeded'"
+          ],
+          "trust_radius": 0.1,
+          "incumbent_soc": 0.27595776046320664,
+          "verified_neighborhood_soc": 0.27364397739427837
+        },
+        {
+          "family": "mejzlik",
+          "relaxed": {
+            "span_m": 6.0,
+            "chord_m": 0.38163793460474027,
+            "tail_arm_m": 2.0,
+            "vstab_arm_m": 2.268578549743357,
+            "boom_spacing_m": 1.04,
+            "elevator_frac": 0.33825790937206135,
+            "n_packs": 3.0,
+            "diameter_in": 19.723552202958835,
+            "pitch_in": 12.585328486754864
+          },
+          "predicted_soc": 0.28261617694982777,
+          "status": "Solve_Succeeded",
+          "props": [
+            "MJ-20x13E",
+            "MJ-20x13EL",
+            "MJ-20p5x12ELW",
+            "MJ-20p5x12EW",
+            "MJ-21x13E",
+            "MJ-21x13EL",
+            "MJ-21x13p5EL",
+            "MJ-20x11E",
+            "MJ-20x11EW",
+            "MJ-20x11EWL",
+            "MJ-21x14EL",
+            "MJ-22x12EW"
+          ],
+          "packs": [
+            2,
+            3
+          ],
+          "failures": [],
+          "trust_radius": 0.2,
+          "incumbent_soc": 0.2956692826401368,
+          "verified_neighborhood_soc": 0.29286889811496486
+        }
+      ]
+    },
+    {
+      "iteration": 3,
+      "fits": {
+        "apc": {
+          "status": "fit",
+          "valid": 128,
+          "total": 134,
+          "ridge": 0.01,
+          "held_out_soc_rmse_pp": 6.931002773625762
+        },
+        "mejzlik": {
+          "status": "fit",
+          "valid": 149,
+          "total": 153,
+          "ridge": 0.1,
+          "held_out_soc_rmse_pp": 2.673812973226601
+        }
+      },
+      "proposals": [
+        {
+          "family": "apc",
+          "relaxed": {
+            "span_m": 6.0,
+            "chord_m": 0.3907112676047422,
+            "tail_arm_m": 2.0,
+            "vstab_arm_m": 2.154369744388065,
+            "boom_spacing_m": 1.04,
+            "elevator_frac": 0.31919015280228913,
+            "n_packs": 2.8425896127479846,
+            "diameter_in": 19.334024207707806,
+            "pitch_in": 12.762501822021918
+          },
+          "predicted_soc": 0.2924080419874334,
+          "status": "Solve_Succeeded",
+          "props": [
+            "20x13E",
+            "19x12E",
+            "18x12E",
+            "21x13E",
+            "205x14E",
+            "20x11E",
+            "17x12E"
+          ],
+          "packs": [
+            2,
+            3
+          ],
+          "failures": [
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'"
+          ],
+          "trust_radius": 0.05,
+          "incumbent_soc": 0.27595776046320664,
+          "verified_neighborhood_soc": 0.276623061171774
+        },
+        {
+          "family": "mejzlik",
+          "relaxed": {
+            "span_m": 6.0,
+            "chord_m": 0.38298128551138466,
+            "tail_arm_m": 2.0,
+            "vstab_arm_m": 2.262387546134201,
+            "boom_spacing_m": 1.04,
+            "elevator_frac": 0.3380536722474482,
+            "n_packs": 3.0,
+            "diameter_in": 19.475017942693423,
+            "pitch_in": 12.212527096672433
+          },
+          "predicted_soc": 0.28246106298259327,
+          "status": "Solve_Succeeded",
+          "props": [
+            "MJ-20p5x12ELW",
+            "MJ-20p5x12EW",
+            "MJ-20x13E",
+            "MJ-20x13EL",
+            "MJ-20x11E",
+            "MJ-20x11EW",
+            "MJ-20x11EWL",
+            "MJ-21x13E",
+            "MJ-21x13EL",
+            "MJ-21x13p5EL",
+            "MJ-21x14EL"
+          ],
+          "packs": [
+            2,
+            3
+          ],
+          "failures": [],
+          "trust_radius": 0.1,
+          "incumbent_soc": 0.2956692826401368,
+          "verified_neighborhood_soc": 0.29168783550343447
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    "Response-surface proposals are not exact physics or guaranteed global optima.",
+    "Final results contain only original-model evaluations of actual catalog SKUs."
+  ]
+}

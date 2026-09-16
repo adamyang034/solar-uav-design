@@ -216,7 +216,7 @@ function chartColors() {
 }
 function plotTime(e) {
   const start = Number(e.plot_start_hod ?? 8);
-  const dur = Number(e.plot_duration_h ?? 60);
+  const dur = Number(e.plot_duration_h ?? 89);
   const clock = (h, minutes) => {
     const abs = start + h;
     const day = Math.max(0, Math.floor((abs + 1e-9) / 24));

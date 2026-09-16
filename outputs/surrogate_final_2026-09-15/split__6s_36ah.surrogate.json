@@ -1,0 +1,317 @@
+{
+  "method": "aerosandbox_surrogate",
+  "exact_evaluations": 269,
+  "catalog_props": 51,
+  "elapsed_s": 45.79397241701372,
+  "candidates": 134,
+  "iterations": [
+    {
+      "iteration": 1,
+      "fits": {
+        "apc": {
+          "status": "fit",
+          "valid": 53,
+          "total": 105,
+          "ridge": 1.0,
+          "held_out_soc_rmse_pp": 5.012585909020785
+        },
+        "mejzlik": {
+          "status": "fit",
+          "valid": 39,
+          "total": 80,
+          "ridge": 1.0,
+          "held_out_soc_rmse_pp": 6.326511012180476
+        }
+      },
+      "proposals": [
+        {
+          "family": "apc",
+          "relaxed": {
+            "span_m": 6.0,
+            "chord_m": 0.39219706226353046,
+            "tail_arm_m": 1.188493810649184,
+            "boom_spacing_m": 2.1953383128582575,
+            "taper_ratio": 0.4525465353047194,
+            "taper_start_frac": 0.25771623722609566,
+            "washout_tip_deg": 0.042735145797851905,
+            "washout_start_frac": 0.9131326948988246,
+            "elevator_frac": 0.33223565952669804,
+            "n_packs": 2.0,
+            "diameter_in": 16.628372130347746,
+            "pitch_in": 12.47127921220212
+          },
+          "predicted_soc": 0.30400238048615774,
+          "status": "Solve_Succeeded",
+          "props": [
+            "17x12E",
+            "16x12E",
+            "18x12E",
+            "19x12E",
+            "17x10E"
+          ],
+          "packs": [
+            2,
+            3
+          ],
+          "failures": [
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'",
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Maximum_Iterations_Exceeded'"
+          ],
+          "trust_radius": 0.1,
+          "incumbent_soc": 0.30589839331596097,
+          "verified_neighborhood_soc": null
+        },
+        {
+          "family": "mejzlik",
+          "relaxed": {
+            "span_m": 6.0,
+            "chord_m": 0.396781152426787,
+            "tail_arm_m": 1.1896046237273867,
+            "boom_spacing_m": 2.21,
+            "taper_ratio": 0.4168723034471134,
+            "taper_start_frac": 0.2309025977539103,
+            "washout_tip_deg": 0.0,
+            "washout_start_frac": 0.1608261911808652,
+            "elevator_frac": 0.3425548483298606,
+            "n_packs": 2.0,
+            "diameter_in": 21.0,
+            "pitch_in": 14.0
+          },
+          "predicted_soc": null,
+          "status": "fallback_anchor",
+          "props": [
+            "MJ-21x14EL",
+            "MJ-21x13p5EL",
+            "MJ-21x13E",
+            "MJ-21x13EL",
+            "MJ-20x13E",
+            "MJ-20x13EL",
+            "MJ-20p5x12ELW",
+            "MJ-20p5x12EW",
+            "MJ-22x12EW"
+          ],
+          "packs": [
+            2,
+            3
+          ],
+          "failures": [
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'",
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'",
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'"
+          ],
+          "trust_radius": 0.1,
+          "incumbent_soc": null,
+          "verified_neighborhood_soc": null
+        }
+      ]
+    },
+    {
+      "iteration": 2,
+      "fits": {
+        "apc": {
+          "status": "fit",
+          "valid": 62,
+          "total": 123,
+          "ridge": 1.0,
+          "held_out_soc_rmse_pp": 3.0387344415723434
+        },
+        "mejzlik": {
+          "status": "fit",
+          "valid": 42,
+          "total": 86,
+          "ridge": 0.1,
+          "held_out_soc_rmse_pp": 8.83833726965963
+        }
+      },
+      "proposals": [
+        {
+          "family": "apc",
+          "relaxed": {
+            "span_m": 6.0,
+            "chord_m": 0.396781152426787,
+            "tail_arm_m": 1.1896046237273867,
+            "boom_spacing_m": 2.21,
+            "taper_ratio": 0.4168723034471134,
+            "taper_start_frac": 0.2309025977539103,
+            "washout_tip_deg": 0.0,
+            "washout_start_frac": 0.1608261911808652,
+            "elevator_frac": 0.3425548483298606,
+            "n_packs": 2.0,
+            "diameter_in": 16.0,
+            "pitch_in": 12.0
+          },
+          "predicted_soc": null,
+          "status": "fallback_anchor",
+          "props": [
+            "16x12E",
+            "17x12E",
+            "18x12E",
+            "16x10E",
+            "17x10E",
+            "18x10E"
+          ],
+          "packs": [
+            2,
+            3
+          ],
+          "failures": [
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'",
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'",
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'"
+          ],
+          "trust_radius": 0.05,
+          "incumbent_soc": 0.30589839331596097,
+          "verified_neighborhood_soc": 0.3078441672326068
+        },
+        {
+          "family": "mejzlik",
+          "relaxed": {
+            "span_m": 6.0,
+            "chord_m": 0.401781152426787,
+            "tail_arm_m": 1.1896046237273867,
+            "boom_spacing_m": 2.21,
+            "taper_ratio": 0.4168723034471134,
+            "taper_start_frac": 0.2309025977539103,
+            "washout_tip_deg": 0.0,
+            "washout_start_frac": 0.1608261911808652,
+            "elevator_frac": 0.3425548483298606,
+            "n_packs": 2.0,
+            "diameter_in": 21.0,
+            "pitch_in": 14.0
+          },
+          "predicted_soc": null,
+          "status": "fallback_anchor",
+          "props": [
+            "MJ-21x14EL",
+            "MJ-21x13p5EL",
+            "MJ-21x13E",
+            "MJ-21x13EL",
+            "MJ-20x13E",
+            "MJ-20x13EL",
+            "MJ-20p5x12ELW",
+            "MJ-20p5x12EW",
+            "MJ-22x12EW"
+          ],
+          "packs": [
+            2,
+            3
+          ],
+          "failures": [
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'",
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'",
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'"
+          ],
+          "trust_radius": 0.05,
+          "incumbent_soc": null,
+          "verified_neighborhood_soc": null
+        }
+      ]
+    },
+    {
+      "iteration": 3,
+      "fits": {
+        "apc": {
+          "status": "fit",
+          "valid": 65,
+          "total": 129,
+          "ridge": 1.0,
+          "held_out_soc_rmse_pp": 8.783142998249238
+        },
+        "mejzlik": {
+          "status": "fit",
+          "valid": 52,
+          "total": 106,
+          "ridge": 0.1,
+          "held_out_soc_rmse_pp": 7.659560558317311
+        }
+      },
+      "proposals": [
+        {
+          "family": "apc",
+          "relaxed": {
+            "span_m": 6.0,
+            "chord_m": 0.391781152426787,
+            "tail_arm_m": 1.1896046237273867,
+            "boom_spacing_m": 2.21,
+            "taper_ratio": 0.4168723034471134,
+            "taper_start_frac": 0.2309025977539103,
+            "washout_tip_deg": 0.0,
+            "washout_start_frac": 0.1608261911808652,
+            "elevator_frac": 0.3425548483298606,
+            "n_packs": 2.0,
+            "diameter_in": 16.0,
+            "pitch_in": 12.0
+          },
+          "predicted_soc": null,
+          "status": "fallback_anchor",
+          "props": [
+            "16x12E",
+            "17x12E",
+            "18x12E",
+            "16x10E",
+            "17x10E",
+            "18x10E"
+          ],
+          "packs": [
+            2,
+            3
+          ],
+          "failures": [
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'",
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Maximum_Iterations_Exceeded'",
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Maximum_Iterations_Exceeded'"
+          ],
+          "trust_radius": 0.05,
+          "incumbent_soc": 0.3078441672326068,
+          "verified_neighborhood_soc": null
+        },
+        {
+          "family": "mejzlik",
+          "relaxed": {
+            "span_m": 6.0,
+            "chord_m": 0.40678115242678703,
+            "tail_arm_m": 1.1896046237273867,
+            "boom_spacing_m": 2.21,
+            "taper_ratio": 0.4168723034471134,
+            "taper_start_frac": 0.2309025977539103,
+            "washout_tip_deg": 0.0,
+            "washout_start_frac": 0.1608261911808652,
+            "elevator_frac": 0.3425548483298606,
+            "n_packs": 2.0,
+            "diameter_in": 21.0,
+            "pitch_in": 14.0
+          },
+          "predicted_soc": null,
+          "status": "fallback_anchor",
+          "props": [
+            "MJ-21x14EL",
+            "MJ-21x13p5EL",
+            "MJ-21x13E",
+            "MJ-21x13EL",
+            "MJ-20x13E",
+            "MJ-20x13EL",
+            "MJ-20p5x12ELW",
+            "MJ-20p5x12EW",
+            "MJ-22x12EW"
+          ],
+          "packs": [
+            2,
+            3
+          ],
+          "failures": [
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'",
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'",
+            "Solver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Infeasible_Problem_Detected'"
+          ],
+          "trust_radius": 0.025,
+          "incumbent_soc": null,
+          "verified_neighborhood_soc": null
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    "Response-surface proposals are not exact physics or guaranteed global optima.",
+    "Final results contain only original-model evaluations of actual catalog SKUs."
+  ]
+}

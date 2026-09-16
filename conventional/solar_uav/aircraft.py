@@ -1509,13 +1509,48 @@ class Design:
     def rudder_yaw_ok(self, v_ms: float | None = None,
                       rho: float = RHO_NIGHT) -> bool:
         """Full rudder vs weathercock at YAW_TRIM β, plus loiter yaw rate."""
+        return bool(self.rudder_sizing(v_ms, rho)["rudder_sizing_ok"])
+
+    def rudder_sizing(self, v_ms: float | None = None,
+                      rho: float = RHO_NIGHT) -> dict:
+        """Required vs installed full-span rudder using the existing tau law.
+
+        Static sideslip correction and steady yaw rate are separate load
+        cases, matching the existing checks. This is aerodynamic sizing,
+        not servo torque, hinge strength, or transient-response validation.
+        The installed 30%-chord surface is retained in geometry and drag.
+        """
         v = self.min_airspeed(rho) if v_ms is None else float(v_ms)
-        n_t = self.rudder_moment_n(v, rho)
-        n_a = self.weathercock_moment_n(v, rho)
-        if n_t < n_a:
-            return False
-        r = self.yaw_rate_deg_s(0.0, v, rho, level_flight=True)
-        return bool(r >= config.YAW_RATE_MIN_DEG_S - 1e-6)
+        installed = float(config.RUDDER_CHORD_FRAC)
+        moment = self.rudder_moment_n(v, rho)
+        static_need = max(0.0, self.weathercock_moment_n(v, rho))
+        damping = self.yaw_damping_n_per_rads(v, rho)
+        rate_need = -damping * np.radians(config.YAW_RATE_MIN_DEG_S)
+        required = max(static_need, rate_need)
+        moment_per_tau = moment / max(self.rudder_tau(), 1e-12)
+        fraction = ((required / moment_per_tau) ** 2
+                    if moment_per_tau > 0.0 and damping < -1e-9
+                    else float("inf"))
+        # flap_tau is defined only over 5%-60% chord; do not extrapolate it.
+        fraction = max(0.05, fraction)
+        static_margin = moment / static_need - 1.0 if static_need > 0 else float("inf")
+        rate_margin = moment / rate_need - 1.0 if rate_need > 0 else float("-inf")
+        ok = (np.isfinite(fraction) and 0.05 <= installed <= 0.60
+              and fraction <= installed + 1e-9)
+        return {
+            "rudder_span_m": float(self.vstab_height),
+            "rudder_installed_fraction": installed,
+            "rudder_required_fraction": float(fraction),
+            "rudder_installed_chord_m": installed * self.vstab_chord,
+            "rudder_required_chord_m": float(fraction * self.vstab_chord),
+            "rudder_installed_area_m2": installed * self.vstab_area_total,
+            "rudder_required_area_m2": float(fraction * self.vstab_area_total),
+            "rudder_available_moment_nm": float(moment),
+            "rudder_required_moment_nm": float(required),
+            "rudder_sideslip_margin": float(static_margin),
+            "rudder_rate_margin": float(rate_margin),
+            "rudder_sizing_ok": bool(ok),
+        }
 
     def differential_thrust_yaw_ok(self, t_one_motor_max_n: float = 0.0,
                                    v_ms: float | None = None,
@@ -1626,6 +1661,7 @@ class Design:
             "yaw_rate_level_deg_s": yaw_level,
             "yaw_correct_s": yaw_t,
             "tail_volume_v": self.tail_volume_v_actual(),
+            **self.rudder_sizing(self.min_power_speed()),
             "vstab_area_total_m2": self.vstab_area_total,
             "static_margin": self.static_margin(),
             "n_cells": self.n_cells,

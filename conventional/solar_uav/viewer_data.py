@@ -201,7 +201,7 @@ def specs(design: Design, energy: dict, drag: dict, mass: dict) -> list[dict]:
                 ["Cruise altitude", _fmt(config.CRUISE_ALT_AGL_M, ".0f", " m AGL")],
                 ["Design day", str(config.SOLSTICE_DATE) + " (solstice Ineichen)"],
                 ["Mission window", f"{config.MISSION_WINDOW[0]} – {config.MISSION_WINDOW[1]}"],
-                ["Scored duration", _fmt(config.DESIGN_MISSION_HOURS, ".0f", " h")],
+                ["Visualization duration", _fmt(config.DESIGN_MISSION_HOURS, ".0f", " h")],
             ]),
             _section("This airplane", [
                 ["Layout", "Conventional: 1 fuselage · 1 boom · 1 prop"],
@@ -243,6 +243,13 @@ def specs(design: Design, energy: dict, drag: dict, mass: dict) -> list[dict]:
                 ["H-arm / incidence", f"{d.tail_arm_m:.2f} m  /  {d.hstab_incidence_deg():.2f}°"],
                 ["V-stab", f"{d.vstab_height:.3f} × {d.vstab_chord:.3f} m  AR {d.vstab_ar:.2f}"],
                 ["V-arm", _fmt(d.vstab_arm_m, ".2f", " m")],
+                ["Rudder installed / required chord",
+                 f"{d.rudder_sizing()['rudder_installed_chord_m']*1000:.1f} / "
+                 f"{d.rudder_sizing()['rudder_required_chord_m']*1000:.1f} mm"],
+                ["Rudder installed / required area",
+                 f"{d.rudder_sizing()['rudder_installed_area_m2']:.4f} / "
+                 f"{d.rudder_sizing()['rudder_required_area_m2']:.4f} m2"],
+                ["Rudder sizing", "pass" if d.rudder_sizing()["rudder_sizing_ok"] else "fail"],
                 ["V_V / Cn_β", f"{d.tail_volume_v_actual():.3f}  /  {d.cn_beta():.3f}"],
                 ["Yaw", (f"rudder  {config.RUDDER_CHORD_FRAC:.0%} c  "
                          f"{config.RUDDER_MAX_DEG:.0f}°")],
@@ -261,8 +268,12 @@ def specs(design: Design, energy: dict, drag: dict, mass: dict) -> list[dict]:
             ]),
         ]},
         {"id": "power", "label": "Power", "sections": [
-            _section("Energy march (day 2)", [
+            _section("Morning-to-morning cycle", [
                 ["Closed", "yes" if e.get("closed") else "no"],
+                ["Morning / next morning SOC",
+                 f"{_fmt(100*float(e.get('morning_soc', float('nan'))), '.2f')} / "
+                 f"{_fmt(100*float(e.get('next_morning_soc', float('nan'))), '.2f')} %"],
+                ["Morning SOC change", _fmt(100*float(e.get("morning_soc_change", float("nan"))), ".4f", " pp")],
                 ["Margin above 20%", _fmt(e.get("margin_wh"), ".1f", " Wh")],
                 ["SOC min / start / end",
                  f"{_fmt(100*float(e.get('soc_min') or 0), '.1f')} / "
@@ -277,7 +288,7 @@ def specs(design: Design, energy: dict, drag: dict, mass: dict) -> list[dict]:
                 ["Pack / usable (80%)",
                  f"{_fmt(e.get('pack_wh'), '.0f')} / {_fmt(e.get('usable_wh'), '.0f')} Wh"],
                 ["Battery-true night", _fmt(e.get("battery_night_h"), ".2f", " h")],
-                ["Launch clock", e.get("start_clock") or "—"],
+                ["Cycle start clock", e.get("start_clock") or "—"],
             ]),
             _section("Array", [
                 ["Cells", f"{d.n_cells}  bin {config.CELL_BIN_DEFAULT}  {cell.efficiency*100:.1f}% STC"],
@@ -342,7 +353,7 @@ def cell_rects(design: Design) -> list[dict]:
 
 
 def attach_traces(energy: dict, result) -> dict:
-    """Add downsampled viewer traces (2.5-day 08:00 display march)."""
+    """Add downsampled traces from the independent 89-hour display march."""
     if not energy or result is None:
         return energy
     hours = np.asarray(result.hours, dtype=float).ravel()
