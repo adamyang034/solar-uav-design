@@ -16,7 +16,8 @@ class MassAllocationTests(unittest.TestCase):
                                CELL_INTERCONNECT_MASS_KG=.0015,N_MOTORS=2,MTOW_MAX_KG=12)
         raw=dict(wing=2.,hstab=.3,vstabs=.2,booms=.5,solar_cells=.24,mppts=.216,
                  batteries=2.556,motors=.55,props=.08,fixed=sum(fixed.values()))
-        design=SimpleNamespace(n_cells=30,n_mppts=2,n_packs=2,mass_kg=sum(raw.values()),mass_breakdown=lambda:raw)
+        design=SimpleNamespace(n_cells=30,n_mppts=2,n_packs=2,mass_kg=sum(raw.values()),mass_breakdown=lambda:raw,
+                               cell_placements=lambda:[SimpleNamespace(bay='wing_inboard') for _ in range(30)])
         return design,config,raw
 
     def test_groups_and_leaves_reconcile(self):
@@ -28,15 +29,54 @@ class MassAllocationTests(unittest.TestCase):
                 self.assertAlmostEqual(sum(n['mass_kg'] for n in node['children']),node['mass_kg'])
                 for n in node['children']:check(n)
         for node in result['groups']:check(node)
-        self.assertEqual(len(result['groups']),5)
+        self.assertEqual(len(result['groups']),9)
+        for group in result['groups']:
+            self.assertAlmostEqual(group['quantity']*group['per_item_kg'],group['mass_kg'])
 
     def test_fixed_budgets_reclassified_once(self):
         d,c,_=self.example()
         groups={g['id']:g for g in module.allocation(d,c)['groups']}
-        self.assertAlmostEqual(groups['airframe']['mass_kg'],3.5)
+        self.assertAlmostEqual(groups['wing']['mass_kg'],2.28)
+        self.assertAlmostEqual(groups['hstab']['mass_kg'],.38)
+        self.assertAlmostEqual(groups['vstab']['mass_kg'],.26)
         self.assertAlmostEqual(groups['propulsion']['mass_kg'],.69)
-        self.assertAlmostEqual(groups['avionics_controls']['mass_kg'],.38)
-        self.assertAlmostEqual(groups['solar_power']['mass_kg'],.652)
+        self.assertAlmostEqual(groups['avionics_controls']['mass_kg'],.3)
+        self.assertAlmostEqual(groups['solar_power']['mass_kg'],.412)
+
+    def test_conventional_tail_components_and_servo_split(self):
+        d,c,_=self.example()
+        c.N_MOTORS=1
+        result=module.allocation(d,c)
+        groups={g['id']:g for g in result['groups']}
+        for name,structure,interface in [('hstab',.3,.04),('vstab',.2,.06)]:
+            g=groups[name]
+            self.assertAlmostEqual(g['mass_kg'],structure+interface+.02)
+            self.assertEqual(g['quantity'],1)
+            self.assertEqual(len(g['children']),3)
+            servo=next(n for n in g['children'] if n['id']==name+'_servos')
+            self.assertIn('Provisional',servo['note'])
+            self.assertAlmostEqual(servo['mass_kg'],.02)
+        self.assertEqual(result['servo_allocation']['assumed_counts'],{'wing':2,'hstab':1,'vstab':1})
+
+    def test_solar_mass_follows_installation_and_split_tail_quantity(self):
+        d,c,_=self.example()
+        c.N_HSTABS=2
+        d.cell_placements=lambda:([SimpleNamespace(bay='wing_inboard') for _ in range(22)]
+                                 +[SimpleNamespace(bay='hstab') for _ in range(8)])
+        result=module.allocation(d,c)
+        groups={g['id']:g for g in result['groups']}
+        self.assertAlmostEqual(groups['hstab']['mass_kg'],.38+.064)
+        self.assertEqual(groups['hstab']['quantity'],2)
+        self.assertAlmostEqual(groups['hstab']['per_item_kg'],.222)
+        self.assertAlmostEqual(groups['wing']['mass_kg'],2.28-.064)
+        self.assertEqual(next(n for n in groups['vstab']['children'] if n['id']=='vstab_servos')['mass_kg'],0)
+
+    def test_unassigned_or_missing_cell_placements_fail(self):
+        d,c,_=self.example()
+        d.cell_placements=lambda:[SimpleNamespace(bay='unknown')]
+        with self.assertRaises(ValueError):module.allocation(d,c)
+        d.cell_placements=lambda:[]
+        with self.assertRaises(ValueError):module.allocation(d,c)
 
     def test_additional_items_are_not_dropped(self):
         d,c,raw=self.example()

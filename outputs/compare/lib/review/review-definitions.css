@@ -1,0 +1,19 @@
+.variable-label{display:inline-flex;align-items:center;gap:4px;max-width:100%;vertical-align:middle;text-align:left;white-space:normal}
+.variable-name{min-width:0;overflow-wrap:anywhere}
+.definition-button{display:inline-flex;align-items:center;justify-content:center;flex:0 0 20px;width:20px;height:20px;padding:2px;border-radius:3px;color:var(--muted);vertical-align:middle}
+.definition-button:hover,.definition-button:focus-visible{color:var(--ink);background:var(--hover)}
+.definition-button svg.lucide{width:13px;height:13px;stroke-width:1.6}
+.metric-label{min-height:28px}
+.metric-label .variable-label{align-items:flex-start}
+.metric-label .definition-button{margin-top:-3px}
+.kv>.variable-label{flex:1 1 auto;min-width:0}
+.kv>strong{min-width:0;flex:0 1 55%}
+.geometry-strip .variable-label{font:inherit;color:inherit}
+.definition-popup{position:fixed;z-index:1000;width:330px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;padding:13px 15px;border:1px solid var(--strong);border-radius:5px;background:var(--bg);color:var(--ink);box-shadow:var(--shadow);font-size:12px;line-height:1.55;overflow-wrap:anywhere;text-align:left}
+.definition-popup[hidden]{display:none}
+.definition-popup>strong{display:block;font-size:12px;font-weight:650;margin-bottom:6px}
+.definition-popup>p{color:var(--muted);margin:0}
+.definition-popup>code{display:block;margin-top:9px;padding-top:9px;border-top:1px solid var(--line);white-space:pre-wrap;font:11px/1.5 ui-monospace,SFMono-Regular,monospace}
+.definition-popup>code[hidden]{display:none}
+.mass-part-row .variable-label{vertical-align:middle}
+@media(pointer:coarse){.definition-button{flex-basis:24px;width:24px;height:24px}.metric-label .definition-button{margin-top:-4px}}

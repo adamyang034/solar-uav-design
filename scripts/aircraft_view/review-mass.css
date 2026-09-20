@@ -6,7 +6,11 @@
 .mass-pie-center strong { font-size:29px; font-weight:600; line-height:1.3; }
 .mass-pie-center strong small { font-size:12px; font-weight:400; color:var(--muted); margin-left:4px; }
 .mass-pie-center>span { font-size:11px; color:var(--muted); margin-top:5px; }
-.mass-allocation-table { font-size:12px; }
+.mass-allocation-table { font-size:12px; min-width:520px; }
+.mass-allocation-table .num { white-space:nowrap; }
+.mass-open-items { border-left:2px solid var(--amber); padding:4px 12px; margin-bottom:14px; font-size:11px; color:var(--muted); }
+.mass-open-items strong { font-weight:500; color:var(--ink); }
+.mass-open-items p { margin:4px 0; }
 .mass-allocation-table td { padding-top:11px; padding-bottom:11px; }
 .mass-allocation-table tr[data-mass-group]:hover { background:var(--subtle); }
 .mass-allocation-table td:first-child { width:44%; }
@@ -61,7 +65,7 @@
   .mass-metrics .metric:nth-child(4) { padding-left:12px; }
 }
 @media(max-width:650px) {
-  .mass-overview { grid-template-columns:1fr; gap:18px; }
+  .mass-overview { grid-template-columns:minmax(0,1fr); gap:18px; }
   .mass-pie-wrap { width:270px; height:270px; }
   .mass-detail-grid { grid-template-columns:minmax(0,1fr); gap:16px; }
   .mass-pie-wrap.detail { width:210px; height:210px; margin-top:0; }
