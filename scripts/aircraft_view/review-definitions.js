@@ -31,6 +31,7 @@ add('Vertical tail height', 'Full height of one vertical fin. For the straddling
 add('Vertical tail chord', 'Leading-edge to trailing-edge chord of one fin. Current fins have constant chord, including when swept.');
 add('Vertical tail arm|vstab_arm_m', 'Longitudinal distance from the wing quarter-MAC aerodynamic center to the vertical-tail aerodynamic center. Fin sweep can increase this arm without moving the fin root.', 'l_v = x_AC,vertical-tail - x_AC,wing');
 add('Aileron span / side', 'Spanwise length of one aileron, from its automatically sized inboard end to the tip keep-out boundary. Not the sum of left and right ailerons.');
+add('Aileron chord', 'Chordwise distance from the hinge line to the trailing edge at neutral deflection. Calculated as the aileron chord fraction times local wing chord. A rectangular wing has one constant value; tapered wings show inboard / outboard values at the aileron ends, not the wing root and tip. This is the modeled conventional aileron, not an external add-on surface.');
 add('Boom OD', 'Outside diameter of the modeled circular boom tube. This does not specify wall thickness, material properties or structural approval.');
 add('Boom tube|BOOM_PART_NUMBER', 'Selected supplier part for this configuration only. Its recorded physical properties are applied before recomputing mass, drag and performance. Selection does not establish structural qualification.');
 add('Boom linear mass|BOOM_MASS_PER_M', 'Nominal tube mass per metre, multiplied by the modeled material length. Excludes separate attachment, servo and wiring budgets.', 'm_tubes = number of tubes * material length * linear mass');
@@ -67,6 +68,7 @@ add('Battery energy|Nominal battery energy|Nominal bank energy', 'Sum of nominal
 add('Battery packs|Pack count', 'Integer count of installed battery packs. The battery option selects each pack type; the optimizer selects the pack count.');
 add('Energy per pack|PACK_ENERGY_WH', 'Nominal stored energy of one selected battery pack, not the usable bank energy.');
 add('Capacity per pack|PACK_CAPACITY_AH', 'Rated charge capacity of one pack in ampere-hours. This differs from stored energy in watt-hours.');
+add('Total battery capacity', 'Total nominal charge capacity of the installed parallel 6S battery bank. Parallel pack capacities add without increasing bus voltage. Not the usable capacity above the SOC floor.', 'bank Ah = installed pack count * Ah per pack');
 add('Usable energy (80%)', 'Nominal battery energy between full charge and the 20% SOC floor. It is an energy-window value, not predicted endurance.', 'usable Wh = (1 - SOC floor) * nominal bank Wh');
 add('Charge current limit|PACK_CHARGE_MAX_A', 'Maximum modeled charging current per pack before the high-SOC taper; the bank limit scales with installed pack count.');
 add('Modeled DCIR|PACK_R_INTERNAL_OHM', 'Assumed direct-current internal resistance of one battery pack, used in voltage and loss calculations.');

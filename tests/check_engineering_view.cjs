@@ -17,7 +17,10 @@ async function main() {
     await page.goto(url);
     await page.waitForSelector('#cad canvas');
     const cases=await page.evaluate(()=>META.comboOrder);
-    assert.equal(cases.length,8);
+    assert.deepEqual(cases,['pi_tail__gold_v1','split__gold_v1','conventional__gold_v1','conventional_rectangular__gold_v1','conventional_rectangular_solar__gold_v1']);
+    assert.equal(await page.locator('.snapshot-label').innerText(),'5 configurations');
+    assert.equal(await page.locator('.nav-count').innerText(),'5');
+    assert.equal(await page.locator('[data-battery="6s_36ah"]').count(),0);
     async function nav(view) {
       await page.locator(`[data-nav="${view}"]`).click();
       await page.waitForFunction(v=>window.currentView===v,view);
@@ -60,23 +63,71 @@ async function main() {
       assert.equal(d.energy.hours.length,d.energy.soc.length);assert(d.energy.soc.every(Number.isFinite));
       assert.equal(d.review.checks.filter(c=>c.status==='fail').length,0);
       assert.equal(d.review.checks.find(c=>c.id==='structure').status,'not_evaluated');
+      const roll=d.review.checks.find(c=>c.id==='roll');
+      assert.equal(roll.limit,20);assert.equal(roll.status,'pass');
+      assert.equal(d.review.inputs.ROLL_RATE_MIN_DEG_S,20);
+      const minimumChord=d.review.checks.find(c=>c.id==='minimum_chord');
+      if(layout==='conventional_rectangular_solar'){
+        assert.equal(minimumChord.limit,310);assert.equal(minimumChord.status,'pass');
+        assert(d.dims.chord_m>=.310-1e-9);
+        assert.equal(d.review.inputs.RECTANGULAR_MIN_CHORD_M,.310);
+      }else{assert.equal(minimumChord,undefined);}
       assert.equal(d.review.provenance.source_sha256.length,64);
+      const setback=d.review.checks.find(c=>c.id==='solar_setback');
+      assert.equal(setback.limit,40);
+      assert.equal(setback.status,'pass');
+      assert(setback.actual>=40);
+      assert.equal(d.review.inputs.WING_SOLAR_LE_SETBACK_M,.04);
+      const packing=await page.evaluate(()=>({cells:DATA.cells,n:DATA.metrics.n_cells}));
+      assert.equal(packing.cells.length,packing.n);
+      assert(packing.cells.filter(c=>c.bay.startsWith('wing_')).every(c=>c.x0>=.04));
+      if(layout==='conventional'||layout==='conventional_rectangular'){
+        assert.equal(d.review.inputs.SOLAR_ALLOW_AILERON_OVERLAP,false);
+        assert.equal(d.dims.cells_on_aileron,false);
+        const gate=d.review.checks.find(c=>c.id==='solar_aileron');
+        assert.equal(gate.actual,0);assert.equal(gate.limit,0);assert.equal(gate.status,'pass');
+        const chord=y=>y<=d.dims.y_taper_m?d.dims.chord_m:d.dims.chord_m+(d.dims.tip_chord_m-d.dims.chord_m)*(y-d.dims.y_taper_m)/(d.dims.span_m/2-d.dims.y_taper_m);
+        for(const c of packing.cells.filter(c=>c.bay.startsWith('wing_'))){
+          for(const y of [Math.abs(c.y0),Math.abs(c.y1)]){
+            if(y>=d.dims.aileron_y_inner_m-1e-9)assert(c.x1<=chord(y)*(1-d.dims.aileron_chord_frac)+1e-9,`${id}: cell overlaps aileron`);
+          }
+        }
+      }
       assert(Math.abs(d.study.morning_soc_difference_pp)<1e-6);
-      if(layout==='conventional_rectangular'){assert.equal(d.dims.taper_ratio,1);assert.equal(d.dims.washout_tip_deg,0);assert.equal(d.dims.tip_chord_m,d.dims.chord_m);}
+      if(layout.startsWith('conventional_rectangular')){assert.equal(d.dims.taper_ratio,1);assert.equal(d.dims.washout_tip_deg,0);assert.equal(d.dims.tip_chord_m,d.dims.chord_m);const allowed=layout.endsWith('_solar');assert.equal(d.review.inputs.SOLAR_ALLOW_AILERON_OVERLAP,allowed);assert.equal(d.dims.cells_on_aileron,allowed);}
       await nav('overview');const solarPixels=await canvasCheck(id,true);
+      const hw=await page.evaluate(()=>({packs:DATA.metrics.n_packs,ah:DATA.metrics.n_packs*DATA.combo.pack_ah,wh:DATA.metrics.pack_wh,cells:DATA.metrics.n_cells}));
+      assert((await page.locator('[data-overview="packs"]').innerText()).startsWith(hw.packs+' ×'));
+      assert.equal(await page.locator('[data-overview="capacity"]').innerText(),hw.ah.toFixed(2)+' Ah');
+      assert.equal(await page.locator('[data-overview="energy"]').innerText(),hw.wh.toLocaleString('en-US',{maximumFractionDigits:0})+' Wh');
+      assert.equal(await page.locator('[data-overview="solar"]').innerText(),hw.cells+' cells');
       await page.screenshot({path:path.join(out,id+'.png'),fullPage:true});
       for(const view of ['geometry','mass','energy','requirements','sources','compare']){
         await nav(view);await checkCharts();await noOverflow();
         if(view==='geometry')await canvasCheck(id+' geometry');
+        if(view==='energy'){
+          const pie=await page.evaluate(()=>({type:Chart.getChart('drag-chart').config.type,values:Chart.getChart('drag-chart').data.datasets[0].data,total:DATA.drag.drag_total_n,cells:DATA.metrics.n_cells}));
+          assert.equal(pie.type,'doughnut');
+          assert.equal(pie.values.length,8);
+          assert(Math.abs(pie.values.reduce((a,b)=>a+b,0)-pie.total)<1e-9);
+          assert.equal(await page.locator('#drag-parts tbody tr').count(),9);
+          if(layout==='conventional_rectangular_solar'){
+            assert.equal(pie.cells,88);
+            await page.locator('#drag-chart').locator('xpath=ancestor::div[contains(@class,"section-band")]').screenshot({path:path.join(out,'drag-buildup.png')});
+          }
+        }
       }
       report.cases.push({id,solarPixels,morning_soc:d.energy.objective_soc,passed:d.study.passed});
     }
-    await page.getByRole('button',{name:'All eight',exact:true}).click();
-    assert.equal(await page.locator('[data-compare-case]:checked').count(),8);
+    await page.getByRole('button',{name:'All 5',exact:true}).click();
+    assert.equal(await page.locator('[data-compare-case]:checked').count(),5);
     await page.locator('#baseline-select').selectOption('conventional__gold_v1');
     await page.getByRole('button',{name:'Deltas',exact:true}).click();
     const socRow=page.locator('.compare-table tr').filter({has:page.locator('td:first-child',{hasText:/^Morning SOC$/})});
-    assert((await socRow.innerText()).includes('-8.09 pp'));
+    const expectedDelta=await page.evaluate(()=>100*(CONFIGS.conventional_rectangular__gold_v1.payload.energy.objective_soc-CONFIGS.conventional__gold_v1.payload.energy.objective_soc));
+    const rectangularColumn=cases.indexOf('conventional_rectangular__gold_v1')+2;
+    const renderedDelta=Number.parseFloat(await socRow.locator('td').nth(rectangularColumn).innerText());
+    assert(Math.abs(renderedDelta-expectedDelta)<.0051);
     await page.getByRole('button',{name:'Both',exact:true}).click();
     await page.screenshot({path:path.join(out,'comparison-desktop.png'),fullPage:true});
     await nav('requirements');
@@ -95,7 +146,7 @@ async function main() {
       const [download]=await Promise.all([page.waitForEvent('download'),page.locator(`[data-export="${kind}"]`).click()]);
       const file=path.join(out,download.suggestedFilename());await download.saveAs(file);
       const bytes=await fs.readFile(file);assert(bytes.length>100);
-      if(kind==='json'){const obj=JSON.parse(bytes);assert(obj.result.review.provenance.source_sha256);assert.equal(obj.configuration,'conventional_rectangular__6s_36ah');}
+      if(kind==='json'){const obj=JSON.parse(bytes);assert(obj.result.review.provenance.source_sha256);assert.equal(obj.configuration,'conventional_rectangular_solar__gold_v1');}
       if(kind==='csv'){assert(bytes.toString().includes('Source SHA-256'));assert(bytes.toString().includes('Morning SOC'));}
       report.exports.push({kind,bytes:bytes.length});
     }
@@ -120,7 +171,7 @@ async function main() {
     assert.equal(await page.locator('[data-layer="cells"]').isChecked(),false);
     await page.locator('[data-layer="cells"]').check();
     await page.reload();await page.waitForSelector('#cad canvas');
-    assert.equal(await page.evaluate(()=>currentCfg),'conventional_rectangular__6s_36ah');
+    assert.equal(await page.evaluate(()=>currentCfg),'conventional_rectangular_solar__gold_v1');
     assert.deepEqual(report.errors,[]);
     console.log(JSON.stringify(report,null,2));
   } finally {await fs.writeFile(path.join(out,'browser-checks.json'),JSON.stringify(report,null,2));await browser.close();}
