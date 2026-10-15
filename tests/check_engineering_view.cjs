@@ -101,6 +101,15 @@ async function main() {
       assert.equal(await page.locator('[data-overview="capacity"]').innerText(),hw.ah.toFixed(2)+' Ah');
       assert.equal(await page.locator('[data-overview="energy"]').innerText(),hw.wh.toLocaleString('en-US',{maximumFractionDigits:0})+' Wh');
       assert.equal(await page.locator('[data-overview="solar"]').innerText(),hw.cells+' cells');
+      const climb = await page.evaluate(()=>DATA.climb);
+      assert.equal(climb.required_rate_ms,1.5);
+      assert.equal(climb.points.length,2);
+      assert.equal(climb.max_required_thrust_n,Math.max(...climb.points.map(p=>p.required_thrust_n)));
+      for(const point of climb.points){
+        assert(Math.abs(point.required_thrust_n-point.level_drag_n-climb.mass_kg*climb.gravity_ms2*climb.required_rate_ms/point.airspeed_ms)<1e-10);
+        assert.equal(point.required_thrust_per_motor_n,point.required_thrust_n/climb.n_motors);
+      }
+      assert((await page.locator('.metric-band').innerText()).includes('CLIMB THRUST REQUIRED'));
       await page.screenshot({path:path.join(out,id+'.png'),fullPage:true});
       for(const view of ['geometry','mass','energy','requirements','sources','compare']){
         await nav(view);await checkCharts();await noOverflow();

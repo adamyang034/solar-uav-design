@@ -58,6 +58,12 @@ add('Night airspeed|v_cruise_ms', 'Evaluated cruise true airspeed relative to th
 add('Stall airspeed', 'Modeled unbanked stall airspeed for the current mass and aerodynamic assumptions. Not the higher cruise or loiter stall-margin speed.');
 add('Lift / drag|Night lift / drag', 'Aircraft weight supported divided by total modeled aerodynamic drag at the evaluated night operating point.', 'L/D = weight / total drag');
 add('Climb rate|CLIMB_RATE_REQ_MS', 'Predicted vertical climb rate from the propulsion and aircraft model at the checked operating point. This is not verified flight performance.');
+add('Climb thrust required', 'Total aircraft thrust needed for the required vertical climb rate. Overview and Compare show the larger of the day/night mission operating-point requirements at modeled mass. Uses level-flight drag, consistent with the existing shallow-climb model. Not maximum available thrust, static thrust or a maximum over the full flight envelope.', 'T_required = D_level + m*g*ROC_required/V');
+add('Required climb rate', 'Specified minimum vertical climb speed used to size required thrust, rather than the predicted maximum climb capability.');
+add('Climb airspeed', 'Day/night true airspeed used by the mission model at the current aircraft mass and air density. This is forward flight, not static thrust.');
+add('Level-flight drag', 'Total modeled level-flight drag at the corresponding climb evaluation speed and density. The shallow-climb approximation retains this drag.');
+add('Climb excess thrust', 'Additional thrust above drag needed to gain altitude at the required vertical speed, with no longitudinal acceleration.', 'T_excess = m*g*ROC_required/V');
+add('Climb thrust per motor', 'Required total thrust divided equally among the installed motors. Does not include an engine-out condition or guarantee propulsion capability.', 'T_each = T_required / motor count');
 add('Static margin|STATIC_MARGIN_MIN', 'Longitudinal static stability margin normalized by wing mean aerodynamic chord. The model assumes CG at wing quarter-MAC, not the illustrative CAD component CG.', 'SM = (x_neutral point - x_CG) / MAC');
 add('Roll rate|ROLL_RATE_MIN_DEG_S', 'Modeled steady roll rate at the configured control deflection and evaluated control speed. Not roll acceleration or bank angle.');
 add('Takeoff mass|Total modeled mass|Aircraft model', 'Sum of the current aircraft structural estimates, installed hardware and fixed mass budgets. This is a modeled takeoff mass, not an as-built weighing.');

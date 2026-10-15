@@ -21,6 +21,7 @@ import numpy as np
 
 from study_variants import RECTANGULAR_LAYOUT, apply_layout, validate_layout
 from engineering_snapshot import snapshot
+from climb_snapshot import climb_snapshot
 from mass_allocation import allocation
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -201,6 +202,7 @@ def bundle_combo(layout: dict, battery: dict) -> dict:
               f"margin={(energy or {}).get('margin_wh')}",
               flush=True)
         data = viewer_payload(d, energy, drag)
+        data["climb"] = climb_snapshot(d, config)
         search_soc = (search_row.get("objective_soc")
                       if search_row is not None else None)
         data["study"] = {
@@ -309,6 +311,7 @@ def main():
     out = args.output_dir / "aircraft_viewer.html"
     out.write_text(html, encoding="utf-8")
     summary = {cid: {"study": c["payload"]["study"],
+                     "climb": c["payload"]["climb"],
                      "mass_kg": c["payload"]["dims"]["mass_kg"],
                      "metrics": c["payload"]["metrics"],
                      "energy": {k: v for k, v in c["payload"]["energy"].items()

@@ -10,6 +10,37 @@
       "yaw_pass": true,
       "passed": true
     },
+    "climb": {
+      "required_rate_ms": 1.5,
+      "mass_kg": 10.998528125671701,
+      "gravity_ms2": 9.80665,
+      "n_motors": 2,
+      "points": [
+        {
+          "condition": "Day",
+          "rho_kg_m3": 1.0143588668355088,
+          "airspeed_ms": 11.408487293095936,
+          "level_drag_n": 3.893284977179973,
+          "excess_thrust_n": 14.181378267681179,
+          "required_thrust_n": 18.074663244861153,
+          "required_thrust_per_motor_n": 9.037331622430576
+        },
+        {
+          "condition": "Night",
+          "rho_kg_m3": 1.0482669018291746,
+          "airspeed_ms": 11.222456771399473,
+          "level_drag_n": 3.8774399020943955,
+          "excess_thrust_n": 14.416457738357778,
+          "required_thrust_n": 18.293897640452172,
+          "required_thrust_per_motor_n": 9.146948820226086
+        }
+      ],
+      "governing_condition": "Night",
+      "max_required_thrust_n": 18.293897640452172,
+      "max_required_thrust_per_motor_n": 9.146948820226086,
+      "formula": "T_required = D_level(V, rho) + m*g*ROC_required/V",
+      "basis": "Maximum of the day/night mission operating points at modeled mass. Uses level-flight drag and steady shallow climb, consistent with the existing mission model. Not a full-envelope maximum, static thrust, takeoff acceleration, gust allowance or validated motor/battery capability."
+    },
     "mass_kg": 10.998528125671701,
     "metrics": {
       "n_motors": 2,
@@ -65,6 +96,37 @@
       "hard_failure": null,
       "yaw_pass": true,
       "passed": true
+    },
+    "climb": {
+      "required_rate_ms": 1.5,
+      "mass_kg": 10.443280267384468,
+      "gravity_ms2": 9.80665,
+      "n_motors": 2,
+      "points": [
+        {
+          "condition": "Day",
+          "rho_kg_m3": 1.0143588668355088,
+          "airspeed_ms": 10.92354103607181,
+          "level_drag_n": 3.8073355732429417,
+          "excess_thrust_n": 14.063241136178483,
+          "required_thrust_n": 17.870576709421425,
+          "required_thrust_per_motor_n": 8.935288354710712
+        },
+        {
+          "condition": "Night",
+          "rho_kg_m3": 1.0482669018291746,
+          "airspeed_ms": 10.745418206505882,
+          "level_drag_n": 3.793280258365015,
+          "excess_thrust_n": 14.296362291251576,
+          "required_thrust_n": 18.089642549616592,
+          "required_thrust_per_motor_n": 9.044821274808296
+        }
+      ],
+      "governing_condition": "Night",
+      "max_required_thrust_n": 18.089642549616592,
+      "max_required_thrust_per_motor_n": 9.044821274808296,
+      "formula": "T_required = D_level(V, rho) + m*g*ROC_required/V",
+      "basis": "Maximum of the day/night mission operating points at modeled mass. Uses level-flight drag and steady shallow climb, consistent with the existing mission model. Not a full-envelope maximum, static thrust, takeoff acceleration, gust allowance or validated motor/battery capability."
     },
     "mass_kg": 10.443280267384468,
     "metrics": {
@@ -122,6 +184,37 @@
       "yaw_pass": true,
       "passed": true
     },
+    "climb": {
+      "required_rate_ms": 1.5,
+      "mass_kg": 10.168173088782641,
+      "gravity_ms2": 9.80665,
+      "n_motors": 1,
+      "points": [
+        {
+          "condition": "Day",
+          "rho_kg_m3": 1.0143588668355088,
+          "airspeed_ms": 11.177578519336866,
+          "level_drag_n": 3.4708011437346724,
+          "excess_thrust_n": 13.381572016954099,
+          "required_thrust_n": 16.85237316068877,
+          "required_thrust_per_motor_n": 16.85237316068877
+        },
+        {
+          "condition": "Night",
+          "rho_kg_m3": 1.0482669018291746,
+          "airspeed_ms": 10.995313271558238,
+          "level_drag_n": 3.4566488249854563,
+          "excess_thrust_n": 13.60339339476301,
+          "required_thrust_n": 17.060042219748468,
+          "required_thrust_per_motor_n": 17.060042219748468
+        }
+      ],
+      "governing_condition": "Night",
+      "max_required_thrust_n": 17.060042219748468,
+      "max_required_thrust_per_motor_n": 17.060042219748468,
+      "formula": "T_required = D_level(V, rho) + m*g*ROC_required/V",
+      "basis": "Maximum of the day/night mission operating points at modeled mass. Uses level-flight drag and steady shallow climb, consistent with the existing mission model. Not a full-envelope maximum, static thrust, takeoff acceleration, gust allowance or validated motor/battery capability."
+    },
     "mass_kg": 10.168173088782641,
     "metrics": {
       "n_motors": 1,
@@ -178,6 +271,37 @@
       "yaw_pass": true,
       "passed": true
     },
+    "climb": {
+      "required_rate_ms": 1.5,
+      "mass_kg": 11.464801715170438,
+      "gravity_ms2": 9.80665,
+      "n_motors": 1,
+      "points": [
+        {
+          "condition": "Day",
+          "rho_kg_m3": 1.0143588668355088,
+          "airspeed_ms": 10.573227746492734,
+          "level_drag_n": 4.476980434849443,
+          "excess_thrust_n": 15.950374914231512,
+          "required_thrust_n": 20.427355349080955,
+          "required_thrust_per_motor_n": 20.427355349080955
+        },
+        {
+          "condition": "Night",
+          "rho_kg_m3": 1.0482669018291746,
+          "airspeed_ms": 10.40081723989683,
+          "level_drag_n": 4.460835061407576,
+          "excess_thrust_n": 16.214778389066968,
+          "required_thrust_n": 20.675613450474543,
+          "required_thrust_per_motor_n": 20.675613450474543
+        }
+      ],
+      "governing_condition": "Night",
+      "max_required_thrust_n": 20.675613450474543,
+      "max_required_thrust_per_motor_n": 20.675613450474543,
+      "formula": "T_required = D_level(V, rho) + m*g*ROC_required/V",
+      "basis": "Maximum of the day/night mission operating points at modeled mass. Uses level-flight drag and steady shallow climb, consistent with the existing mission model. Not a full-envelope maximum, static thrust, takeoff acceleration, gust allowance or validated motor/battery capability."
+    },
     "mass_kg": 11.464801715170438,
     "metrics": {
       "n_motors": 1,
@@ -233,6 +357,37 @@
       "hard_failure": null,
       "yaw_pass": true,
       "passed": true
+    },
+    "climb": {
+      "required_rate_ms": 1.5,
+      "mass_kg": 10.042212883242838,
+      "gravity_ms2": 9.80665,
+      "n_motors": 1,
+      "points": [
+        {
+          "condition": "Day",
+          "rho_kg_m3": 1.0143588668355088,
+          "airspeed_ms": 11.66264555771444,
+          "level_drag_n": 3.5229267008888248,
+          "excess_thrust_n": 12.666139918782655,
+          "required_thrust_n": 16.18906661967148,
+          "required_thrust_per_motor_n": 16.18906661967148
+        },
+        {
+          "condition": "Night",
+          "rho_kg_m3": 1.0482669018291746,
+          "airspeed_ms": 11.472470648305059,
+          "level_drag_n": 3.5072684620032075,
+          "excess_thrust_n": 12.876101842893299,
+          "required_thrust_n": 16.383370304896506,
+          "required_thrust_per_motor_n": 16.383370304896506
+        }
+      ],
+      "governing_condition": "Night",
+      "max_required_thrust_n": 16.383370304896506,
+      "max_required_thrust_per_motor_n": 16.383370304896506,
+      "formula": "T_required = D_level(V, rho) + m*g*ROC_required/V",
+      "basis": "Maximum of the day/night mission operating points at modeled mass. Uses level-flight drag and steady shallow climb, consistent with the existing mission model. Not a full-envelope maximum, static thrust, takeoff acceleration, gust allowance or validated motor/battery capability."
     },
     "mass_kg": 10.042212883242838,
     "metrics": {
